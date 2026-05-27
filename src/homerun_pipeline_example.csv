@@ -1,7 +1,2 @@
 sample,fastq,genome,trim,star,tagdir,qc,deseq2,status,notes
-THP1_csRNA_rep1,/data/fastq/THP1_csRNA_rep1_R1.fastq.gz,Homo_sapiens,PENDING,PENDING,PENDING,PENDING,PENDING,NOT_STARTED,
-THP1_csRNA_rep2,/data/fastq/THP1_csRNA_rep2_R1.fastq.gz,Homo_sapiens,PENDING,PENDING,PENDING,PENDING,PENDING,NOT_STARTED,
-THP1_sRNA_rep1,/data/fastq/THP1_sRNA_rep1_R1.fastq.gz,Homo_sapiens,PENDING,PENDING,PENDING,PENDING,PENDING,NOT_STARTED,
-THP1_sRNA_rep2,/data/fastq/THP1_sRNA_rep2_R1.fastq.gz,Homo_sapiens,PENDING,PENDING,PENDING,PENDING,PENDING,NOT_STARTED,
-THP1_totalRNA_rep1,/data/fastq/THP1_totalRNA_rep1_R1.fastq.gz,Homo_sapiens,PENDING,PENDING,PENDING,PENDING,PENDING,NOT_STARTED,
-THP1_totalRNA_rep2,/data/fastq/THP1_totalRNA_rep2_R1.fastq.gz,Homo_sapiens,DONE,/data/tagDirs/THP1_totalRNA_rep2,DONE,PENDING,PENDING,RUNNING,rerun QC only
+THP1_csRNA_rep1,/weka/data/lab/duttke/personal/jwbonner/projects/testing/cellFastq,Homo_sapiens,PENDING,PENDING,PENDING,PENDING,PENDING,NOT_STARTED,
