@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.log
+*.out
+*.err
+*.bam
+*.sam
+*.fastq
+*.gz
+.env
