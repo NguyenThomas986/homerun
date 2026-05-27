@@ -1,2 +1,2 @@
 sample,fastq,genome,trim,star,tagdir,qc,deseq2,status,notes
-THP1_csRNA_rep1,/weka/data/lab/duttke/personal/jwbonner/projects/testing/cellFastq,Homo_sapiens,PENDING,PENDING,PENDING,PENDING,PENDING,NOT_STARTED,
+THP1_csRNA_rep1,/weka/data/lab/duttke/personal/tnguyen/projects/Testing/cellFastq,Homo_sapiens,PENDING,PENDING,PENDING,PENDING,PENDING,NOT_STARTED,
