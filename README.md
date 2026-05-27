@@ -1,93 +1,91 @@
-# homerun
+Homerun
+Supplementary Software for Homer
+Duttke Lab
 
 
+INTRODUCTION
 
-## Getting started
+Homerun automates several functions of Homer, STAR, and HISAT2 for ease of use and time efficiency.
+Resulting files are neatly organized and can then be utilized by Homerun for quality control and statistical analysis.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+A full Homerun project would involve calling the software for 3 steps:
+1. Tag directory creation
+2. Quality control analysis
+3. Statistical analysis
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+Tag directories must be created before quality control can be conducted on them, and the quality of the tag directories
+should generally be confirmed before performing further analysis.
 
-## Add your files
+DEPENDENCIES
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+STAR, HISAT2, HOMER, pandas
 
-```
-cd existing_repo
-git remote add origin https://gitlab.eecs.wsu.edu/tnguyen/homerun.git
-git branch -M main
-git push -uf origin main
-```
+USING HOMERUN
 
-## Integrate with your tools
+The primary Homerun command uses this format:
 
-* [Set up project integrations](https://gitlab.eecs.wsu.edu/tnguyen/homerun/-/settings/integrations)
+python Homerun.py -p [species] -f [fastq directory] -g [genome directory] -m [mode] -t [step]
 
-## Collaborate with your team
+species:		  the species being analyzed
+fastq directory:  the directory where the fastq files to be analyzed are located - only required for tagdir step
+genome directory: the directory where the appropriate species' genome file is located - only required for tagdir step
+mode:			  "star" or "hisat"
+step:			  "tagdir", "qc", or "stat"
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+Optional fields:
+-w [working path]: The parent directory that will contain all outputs of the Homerun project
+				   Default value: current directory when Homerun is called
+-n [n-tag count]:  n-tag number
+				   Default value: 7
 
-## Test and Deploy
+An example of a command as a user might write it on the command line:
 
-Use the built-in continuous integration in GitLab.
+python ../homerun/Homerun.py -p Homo_sapiens -f ../fastq/project_1/ -g ../genome/Homo_sapiens/ -n 10 -m star -t tagdir
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+The user-provided fastq and genome files are copied into the new directories that Homerun makes for the project.
+This preserves an archive of all input data, but users should remain aware of this when space is a scarce resource.
 
-***
 
-# Editing this README
+TROUBLESHOOTING
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+If tag directories fail during a STAR run but no useful error is logged, try running again with more RAM.
 
-## Suggestions for a good README
+Notes for Jake below this point:
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+TO DO LIST:
+ls *gz -> .tsv
+TSS and TSR in tagdir step
+exclude median plots from QC
+optional command: check tsv
+					3' adapter
+					-t all
+					
+					
+length plots good for showing enrichment (show %sRNA 20-24nt, save that stat)
+A-plot % difference from mean, save that stat (K562 A-like)
+frac vs pos plot
 
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+stats pdf:
+,
+total reads (before trimming)
+% adapter
+% unique/nonaligned
+, tag dir
+Position in analysis
+reads per bp
+, TSR
+TSR count
+% stable
+% bidirectional
+,
+A-plot/K562
+% sRNA
+frac vs pos plot
+enrichment difference
+, layout
+		A-plot	length
+sRNA	plot	plot
+csRNA	plot	plot
+	PCA, cluster (subsample 20,000)
+	
+checkTSVqc
