@@ -47,10 +47,13 @@ def run_trim(row: Dict[str, Any], working_path: str, cpus: int = 1) -> Dict[str,
 
     if seq_type in ("csRNA", "sRNA"):
         _homer_trim(fastqs, cpus=cpus)
+        # homerTools trim writes .trimmed files alongside the input — look there
+        src_dir = fastq_src if os.path.isdir(fastq_src) else os.path.dirname(fastq_src)
+        trimmed = _collect_trimmed(src_dir, seq_type)
     else:
         _skewer_trim(fastqs, output_prefix=str(output_dir / sample), cpus=cpus)
+        trimmed = _collect_trimmed(str(output_dir), seq_type)
 
-    trimmed = _collect_trimmed(str(output_dir), seq_type)
     if not trimmed:
         raise RuntimeError(f"Trimming produced no output files for sample {sample}")
 
