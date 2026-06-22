@@ -84,15 +84,13 @@ _QC_CSS = _COMMON_CSS + """
   .img-item img { max-width: 100%; width: auto; height: auto;
                   border: 1px solid #e5e5e5; border-radius: 2px;
                   display: block; padding: 8px; background: #fff; }
-  .img-caption { margin-top: 14px; border-left: 2px solid #e5e5e5;
-                 padding-left: 16px; display: grid;
-                 grid-template-columns: 88px 1fr; gap: 6px 12px; }
-  .img-caption .cap-row { display: contents; }
-  .img-caption .cap-label { font-size: 10px; font-weight: 500; text-transform: uppercase;
-                             letter-spacing: 0.07em; color: #aaa; padding-top: 2px; }
+  .img-caption { margin-top: 16px; border-left: 3px solid #e5e5e5;
+                 padding-left: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .img-caption .cap-row { display: flex; flex-direction: column; gap: 2px; }
+  .img-caption .cap-label { font-size: 10px; font-weight: 600; text-transform: uppercase;
+                             letter-spacing: 0.07em; color: #aaa; }
   .img-caption .cap-text  { font-size: 12px; color: #444; line-height: 1.55; }
-  .cap-desc { grid-column: 1 / -1; font-size: 12px; color: #333;
-              line-height: 1.6; margin-bottom: 6px; }
+  .cap-desc { font-size: 12px; color: #333; line-height: 1.6; margin-bottom: 4px; }
   .data-section h2 { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500;
                      color: #888; margin-bottom: 8px; text-transform: uppercase;
                      letter-spacing: 0.08em; }
@@ -481,13 +479,10 @@ def _build_qc_html(cfg, now: str) -> str:
                     what, xax, yax, look = desc
                     caption_html = f"""
                 <div class="img-caption">
-                  <span class="cap-desc">{what}</span>
-                  <span class="cap-label">X-axis</span>
-                  <span class="cap-text">{xax}</span>
-                  <span class="cap-label">Y-axis</span>
-                  <span class="cap-text">{yax}</span>
-                  <span class="cap-label">Look for</span>
-                  <span class="cap-text">{look}</span>
+                  <div class="cap-desc">{what}</div>
+                  <div class="cap-row"><span class="cap-label">X-axis</span><span class="cap-text">{xax}</span></div>
+                  <div class="cap-row"><span class="cap-label">Y-axis</span><span class="cap-text">{yax}</span></div>
+                  <div class="cap-row"><span class="cap-label">Look for</span><span class="cap-text">{look}</span></div>
                 </div>"""
                 items += (f'<div class="img-item">'
                           f'<div class="img-name">{f.name}</div>'
@@ -530,12 +525,23 @@ def run_report(cfg) -> None:
         out.write_text(_build_sample_tss_html(cfg, f, now), encoding="utf-8")
         log.info("report: %s", out.name)
 
-    # ── alltss.txt ────────────────────────────────────────────────────────────
-    alltss = cfg.tss / "alltss.txt"
-    if alltss.exists():
+    # ── alltss  (*.alltss.txt) ────────────────────────────────────────────────
+    alltss_files = sorted(cfg.tss.glob("*.alltss.txt"))
+    if alltss_files:
+        sections = ""
+        for f in alltss_files:
+            sections += f"""
+  <section class="tss-section">
+    <div class="tss-header">
+      <span class="fname">{f.name}</span>
+    </div>
+    {_tsv_to_html_table(f)}
+  </section>"""
+        body = sections
+        html = _html_page("All TSS Candidates", cfg.project.name, now, body, _TSS_CSS)
         out = reports_dir / "alltss.html"
-        out.write_text(_build_alltss_html(cfg, alltss, now), encoding="utf-8")
-        log.info("report: alltss.html")
+        out.write_text(html, encoding="utf-8")
+        log.info("report: alltss.html (%d file(s))", len(alltss_files))
 
     # ── stats ─────────────────────────────────────────────────────────────────
     stats_files = sorted(cfg.tss.glob("*.stats.txt"))
@@ -544,7 +550,7 @@ def run_report(cfg) -> None:
         out.write_text(_build_stats_html(cfg, stats_files, now), encoding="utf-8")
         log.info("report: tss_stats.html (%d file(s))", len(stats_files))
 
-    if not tss_files and not alltss.exists() and not stats_files:
+    if not tss_files and not alltss_files and not stats_files:
         log.info("report: no TSS files found in %s — skipping TSS reports", cfg.tss)
 
     # ── per-tagdir reports ────────────────────────────────────────────────────
