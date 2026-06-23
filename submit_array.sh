@@ -32,7 +32,13 @@ if [ "${N}" -eq 0 ] && [ -n "${CSRNA_COPY_SRC}" ]; then
     N=$(python -m csrnaseq --count-samples)
 fi
 [ "${N}" -ge 1 ] || { echo "ERROR: no *_R1* FASTQs in ${CSRNA_PROJECT}/RawData"; exit 1; }
+
+# Print sample names
 echo "Found ${N} sample file(s) → array 0-$((N-1))"
+python -m csrnaseq --list-samples | while IFS= read -r line; do
+    echo "  [${line%%:*}] ${line#*: }"
+done
+echo ""
 
 P="--partition=${CSRNA_PARTITION}"
 [ -n "${CSRNA_EMAIL}" ] && P="${P} --mail-user=${CSRNA_EMAIL} --mail-type=ALL"

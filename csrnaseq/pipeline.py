@@ -53,6 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Run prepare (folders/copy/STARIndex) and exit.")
     p.add_argument("--count-samples", action="store_true",
                    help="Print the number of samples (R1 files in RawData) and exit.")
+    p.add_argument("--list-samples", action="store_true",
+                   help="Print each sample index and name and exit.")
     return p
 
 
@@ -85,6 +87,13 @@ def main(argv=None) -> int:
     # --count-samples: clean stdout (no logging) for the array controller
     if args.count_samples:
         print(len(list_r1(cfg)))
+        return 0
+
+    # --list-samples: print index: samplename for the array controller
+    if args.list_samples:
+        for i, r1 in enumerate(list_r1(cfg)):
+            name = r1.name.split("_R1")[0]
+            print(f"{i}: {name}")
         return 0
 
     setup_logging(cfg)
