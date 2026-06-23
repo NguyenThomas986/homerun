@@ -1,7 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=csrna_prepare
-#SBATCH --output=logs_slurm/prepare_%j.out
-#SBATCH --error=logs_slurm/prepare_%j.err
 #SBATCH --time=2:00:00
 #SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=16G
 
@@ -11,12 +9,10 @@ source ./config.env
 module load "${CSRNA_CONDA_MODULE}"
 source activate "${CSRNA_CONDA_ENV}"
 export PYTHONNOUSERSITE=1
-mkdir -p logs_slurm
 
 export CSRNA_THREADS="${SLURM_CPUS_PER_TASK:-4}"
-export CSRNA_LOG="${SLURM_SUBMIT_DIR}/logs_slurm/prepare_${SLURM_JOB_ID}.log"
+# CSRNA_LOG and CSRNA_RUN_LOG_DIR are passed in via --export from submit_array.sh
 
-echo "[$(date)] prepare on $(hostname)"
+echo "[$(date)] prepare on $(hostname)" | tee -a "${CSRNA_LOG}"
 python -m csrnaseq --only-prepare
-echo "[$(date)] prepare done"
-
+echo "[$(date)] prepare done" | tee -a "${CSRNA_LOG}"
