@@ -60,3 +60,9 @@ STARIndex/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# SLURM outputs
+*.out
+*.err
+slurm-*.out
+slurm-*.err
