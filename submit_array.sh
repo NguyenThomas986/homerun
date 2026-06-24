@@ -7,7 +7,7 @@
 # Run on the LOGIN node:   ./submit_array.sh
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
-cd /weka/data/lab/duttke/personal/tnguyen/projects/TestRun4
+cd "${SLURM_SUBMIT_DIR}"
 source ./config.env
 
 # Activate env so `python -m csrnaseq --count-samples` works on the login node
