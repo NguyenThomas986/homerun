@@ -42,6 +42,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="csRNA-seq pipeline (trim → STAR → tagdirs → bedGraphs → TSS → QC → stability)",
     )
     p.add_argument("--project", help="Project root (default: $CSRNA_PROJECT or CWD).")
+    p.add_argument("--log-path", default=None,
+                   help="Pipeline log file path (overrides CSRNA_LOG; else a timestamped "
+                        "file under <project>/logs/).")
     p.add_argument("--steps", nargs="+", choices=STEP_ORDER,
                    help="Run only these steps (still executed in canonical order).")
     p.add_argument("--sample-index", type=int, default=None,
@@ -55,6 +58,43 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Print the number of samples (R1 files in RawData) and exit.")
     p.add_argument("--stage-raw", action="store_true",
                    help="Move loose *_R1*/*_R2* FASTQs from the project root into RawData/ and exit.")
+
+    # ── Config overrides (each beats its CSRNA_* env var; unset → env/default) ──
+    g = p.add_argument_group("config overrides (override config.env when given)")
+    g.add_argument("--aligner", choices=["star", "hisat2"], default=None,
+                   help="Aligner (overrides CSRNA_ALIGNER).")
+    g.add_argument("--genome-index", default=None,
+                   help="STAR --genomeDir dir or HISAT2 -x prefix (overrides CSRNA_GENOME_INDEX).")
+    g.add_argument("--genome", default=None,
+                   help="HOMER -genome for tagdirs/TSS (overrides CSRNA_GENOME).")
+    g.add_argument("--copy-src", default=None,
+                   help="Glob of FASTQs to copy into RawData/ (overrides CSRNA_COPY_SRC).")
+    g.add_argument("--threads", type=int, default=None,
+                   help="Thread count (overrides CSRNA_THREADS / SLURM_CPUS_PER_TASK).")
+    g.add_argument("--trim-adapter", default=None,
+                   help="3' adapter sequence (overrides CSRNA_TRIM_ADAPTER).")
+    g.add_argument("--trim-min", default=None,
+                   help="Min read length after trimming (overrides CSRNA_TRIM_MINLEN).")
+    g.add_argument("--trim-max", default=None,
+                   help="Max read length after trimming (overrides CSRNA_TRIM_MAXLEN).")
+    g.add_argument("--ntag-threshold", default=None,
+                   help="Min tags to call a TSS cluster (overrides CSRNA_NTAG_THRESHOLD).")
+    g.add_argument("--skip-chr", default=None,
+                   help="Chromosome to exclude from bedGraphs (overrides CSRNA_SKIP_CHR).")
+
+    # ── Alignment overrides (csRNA-tuned defaults stay unless set) ──────────────
+    a = p.add_argument_group("alignment overrides (override config.env when given)")
+    a.add_argument("--star-filter-multimap", default=None,
+                   help="STAR --outFilterMultimapNmax: max loci a read may map to "
+                        "(default 10000; overrides CSRNA_STAR_FILTER_MULTIMAP).")
+    a.add_argument("--star-multimap-out", default=None,
+                   help="STAR --outSAMmultNmax: alignments written per multimapping read "
+                        "(default 1; overrides CSRNA_STAR_MULTIMAP_OUT).")
+    a.add_argument("--star-multimap-order", choices=["Random", "Old_2.4"], default=None,
+                   help="STAR --outMultimapperOrder (default Random; "
+                        "overrides CSRNA_STAR_MULTIMAP_ORDER).")
+    a.add_argument("--hisat2-strandness", choices=["F", "R", "FR", "RF"], default=None,
+                   help="HISAT2 --rna-strandness (default F; overrides CSRNA_HISAT2_STRANDNESS).")
     return p
 
 
@@ -82,7 +122,7 @@ def run_pipeline(cfg, steps=None, skip_prepare=False, sample_index=None) -> None
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    cfg = load_config(args.project)
+    cfg = load_config(args)
 
     # --count-samples: clean stdout (no logging) for the array controller
     if args.count_samples:

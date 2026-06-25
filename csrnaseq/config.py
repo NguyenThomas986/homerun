@@ -23,6 +23,18 @@ def _env(name: str, default):
     return v if v not in (None, "") else default
 
 
+def _pick(args, attr, env_name, default):
+    """Precedence: explicit CLI flag (if given) > CSRNA_* env var > built-in default.
+
+    A flag left unset by argparse is None, so it falls through to the env var,
+    keeping config.env behavior identical when no flag is passed.
+    """
+    cli = getattr(args, attr, None) if args is not None else None
+    if cli is not None:
+        return cli
+    return _env(env_name, default)
+
+
 @dataclass
 class Config:
     project: Path
@@ -33,6 +45,13 @@ class Config:
     genome: str = ""                  # HOMER -genome for tagdirs/tss (REQUIRED)
 
     threads: int = 20
+
+    # Alignment — STAR (csRNA-tuned defaults; override via flag/env if needed)
+    star_filter_multimap: str = "10000"   # --outFilterMultimapNmax
+    star_multimap_out: str = "1"          # --outSAMmultNmax
+    star_multimap_order: str = "Random"   # --outMultimapperOrder
+    # Alignment — HISAT2
+    hisat2_strandness: str = "F"          # --rna-strandness
 
     # Trimming (homerTools, single-end csRNA/sRNA)
     trim_adapter: str = "AGATCGGAAGAGCACACGTCT"
@@ -87,24 +106,43 @@ class Config:
                 self.bedgraphs, self.tss, self.qc, self.reports]
 
 
-def load_config(project: str | None = None) -> Config:
-    project_path = Path(_env("CSRNA_PROJECT", project or os.getcwd())).resolve()
+def load_config(args=None) -> Config:
+    # --project flag (if given) overrides CSRNA_PROJECT; else env; else CWD.
+    cli_project = getattr(args, "project", None) if args is not None else None
+    if cli_project:
+        project_path = Path(cli_project).resolve()
+    else:
+        project_path = Path(_env("CSRNA_PROJECT", os.getcwd())).resolve()
     return Config(
         project=project_path,
-        aligner=_env("CSRNA_ALIGNER", "star").lower(),
-        genome_index=_env("CSRNA_GENOME_INDEX", ""),
-        genome=_env("CSRNA_GENOME", ""),
-        threads=int(_env("CSRNA_THREADS", os.getenv("SLURM_CPUS_PER_TASK", "20"))),
-        trim_adapter=_env("CSRNA_TRIM_ADAPTER", "AGATCGGAAGAGCACACGTCT"),
-        trim_min=_env("CSRNA_TRIM_MINLEN", "20"),
-        trim_max=_env("CSRNA_TRIM_MAXLEN", "58"),
-        ntag_threshold=_env("CSRNA_NTAG_THRESHOLD", "7"),
-        skip_chr=_env("CSRNA_SKIP_CHR", "chrEBV"),
-        copy_src=_env("CSRNA_COPY_SRC", ""),
+        # ── Core (flag > env > default) ──────────────────────────────────────
+        aligner=_pick(args, "aligner", "CSRNA_ALIGNER", "star").lower(),
+        genome_index=_pick(args, "genome_index", "CSRNA_GENOME_INDEX", ""),
+        genome=_pick(args, "genome", "CSRNA_GENOME", ""),
+        copy_src=_pick(args, "copy_src", "CSRNA_COPY_SRC", ""),
+        # ── Alignment (flag > env > default; csRNA-tuned defaults) ───────────
+        star_filter_multimap=_pick(args, "star_filter_multimap",
+                                   "CSRNA_STAR_FILTER_MULTIMAP", "10000"),
+        star_multimap_out=_pick(args, "star_multimap_out",
+                                "CSRNA_STAR_MULTIMAP_OUT", "1"),
+        star_multimap_order=_pick(args, "star_multimap_order",
+                                  "CSRNA_STAR_MULTIMAP_ORDER", "Random"),
+        hisat2_strandness=_pick(args, "hisat2_strandness",
+                                "CSRNA_HISAT2_STRANDNESS", "F"),
+        # ── Trimming / TSS (flag > env > default) ────────────────────────────
+        threads=int(_pick(args, "threads", "CSRNA_THREADS",
+                          os.getenv("SLURM_CPUS_PER_TASK", "20"))),
+        trim_adapter=_pick(args, "trim_adapter", "CSRNA_TRIM_ADAPTER",
+                          "AGATCGGAAGAGCACACGTCT"),
+        trim_min=_pick(args, "trim_min", "CSRNA_TRIM_MINLEN", "20"),
+        trim_max=_pick(args, "trim_max", "CSRNA_TRIM_MAXLEN", "58"),
+        ntag_threshold=_pick(args, "ntag_threshold", "CSRNA_NTAG_THRESHOLD", "7"),
+        skip_chr=_pick(args, "skip_chr", "CSRNA_SKIP_CHR", "chrEBV"),
+        # ── Env-only (no flags) ──────────────────────────────────────────────
         stability_col=_env("CSRNA_STABILITY_COL", "Stable/Unstable"),
         rna_col=_env("CSRNA_RNA_COL", ""),
         rna_stable_threshold=float(_env("CSRNA_RNA_STABLE_THRESHOLD", "0") or 0),
         distal_col=_env("CSRNA_DISTAL_COL", "Promoter Proximal/Distal"),
-        log_path=_env("CSRNA_LOG", ""),
+        log_path=_pick(args, "log_path", "CSRNA_LOG", ""),
         starindex_url=_env("CSRNA_STARINDEX_URL", ""),
     )
