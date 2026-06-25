@@ -99,7 +99,7 @@ class Config:
     @property
     def reports(self) -> Path:   return self.project / "Reports"
     @property
-    def starindex(self) -> Path: return self.project / "STARIndex"
+    def starindex(self) -> Path: return Path(self.genome_index)
 
     def output_dirs(self):
         return [self.rawdata, self.trimmed, self.aligned, self.tagdirs,

@@ -24,4 +24,9 @@ done
 echo "[$(date)] collect on $(hostname)"
 python -m csrnaseq --steps tagdirs bedgraphs tss qc stability report \
        --log-path "${LOG}" "$@"
+
+echo "[$(date)] cleaning up intermediate files"
+rm -rf "${PROJECT}/Trimmed" "${PROJECT}/Aligned" "${PROJECT}/RawData"
+echo "[$(date)] collect done"
+
 echo "[$(date)] collect done"
