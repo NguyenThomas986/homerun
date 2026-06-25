@@ -1,5 +1,6 @@
-"""Preparation: create folders, copy raw FASTQs, ensure STARIndex exists."""
+"""Preparation: create folders, stage loose FASTQs, copy raw FASTQs, ensure STARIndex exists."""
 from __future__ import annotations
+import shutil
 from .utils import run, log
 
 def setup_dirs(cfg) -> None:
@@ -13,6 +14,33 @@ def copy_raw(cfg) -> None:
         run(f"cp -r {cfg.copy_src} {cfg.rawdata}/", label="copy raw FASTQs")
     else:
         log.info("copy_src empty — skipping raw copy.")
+
+def stage_loose_fastqs(cfg) -> None:
+    """Move loose *_R1*/*_R2* FASTQs sitting in the project ROOT into RawData/.
+
+    Non-recursive (only the project root is scanned, never subdirs), so files
+    already in RawData/ are untouched. If a same-named file already exists in
+    RawData/, the loose copy is LEFT IN PLACE (never clobbered) and a warning is
+    logged. Safe to call repeatedly — a no-op once everything is staged.
+    """
+    cfg.rawdata.mkdir(parents=True, exist_ok=True)
+    loose = sorted(
+        p for p in cfg.project.glob("*")
+        if p.is_file()
+        and ("_R1" in p.name or "_R2" in p.name)
+        and (p.name.endswith(".fastq") or p.name.endswith(".fastq.gz"))
+    )
+    if not loose:
+        log.info("stage: no loose FASTQs in project root — nothing to move.")
+        return
+    for src in loose:
+        dst = cfg.rawdata / src.name
+        if dst.exists():
+            log.warning("stage: %s already exists in RawData/ — leaving loose file in place.",
+                        src.name)
+            continue
+        shutil.move(str(src), str(dst))
+        log.info("stage: moved %s -> RawData/", src.name)
 
 def ensure_starindex(cfg) -> None:
     if cfg.aligner != "star":
@@ -35,8 +63,9 @@ def ensure_starindex(cfg) -> None:
     log.info("STARIndex extracted to %s", si)
 
 def prepare(cfg) -> None:
-    log.info("=== PREPARE: folders / raw copy / STARIndex ===")
+    log.info("=== PREPARE: folders / stage loose / raw copy / STARIndex ===")
     setup_dirs(cfg)
+    stage_loose_fastqs(cfg)
     copy_raw(cfg)
     if cfg.aligner == "star":
         ensure_starindex(cfg)

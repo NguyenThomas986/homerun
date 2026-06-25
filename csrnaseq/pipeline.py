@@ -53,6 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Run prepare (folders/copy/STARIndex) and exit.")
     p.add_argument("--count-samples", action="store_true",
                    help="Print the number of samples (R1 files in RawData) and exit.")
+    p.add_argument("--stage-raw", action="store_true",
+                   help="Move loose *_R1*/*_R2* FASTQs from the project root into RawData/ and exit.")
     return p
 
 
@@ -89,6 +91,13 @@ def main(argv=None) -> int:
 
     setup_logging(cfg)
     log.info("Project: %s | genome=%s | threads=%d", cfg.project, cfg.genome, cfg.threads)
+
+    # --stage-raw: move loose root FASTQs into RawData/ and exit (used by the
+    # controller BEFORE --count-samples so the count sees the moved files).
+    if args.stage_raw:
+        prepare.stage_loose_fastqs(cfg)
+        return 0
+
     if args.sample_index is not None:
         log.info("Sample index: %d", args.sample_index)
 

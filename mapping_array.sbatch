@@ -8,9 +8,9 @@
 # Aligner + genome index come from config.env (CSRNA_ALIGNER / CSRNA_GENOME_INDEX).
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR}"
-source ./config.env
-module load "${CSRNA_CONDA_MODULE}"
-source activate "${CSRNA_CONDA_ENV}"
+source "${SLURM_SUBMIT_DIR}/homerun/config.env"
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "${CSRNA_CONDA_ENV}"
 mkdir -p logs_slurm
 
 export CSRNA_THREADS="${SLURM_CPUS_PER_TASK:-20}"
