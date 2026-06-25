@@ -5,9 +5,9 @@
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR}"
-source ./config.env
-module load "${CSRNA_CONDA_MODULE}"
-source activate "${CSRNA_CONDA_ENV}"
+source "${SLURM_SUBMIT_DIR}/homerun/config.env"
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "${CSRNA_CONDA_ENV}"
 
 export CSRNA_THREADS="${SLURM_CPUS_PER_TASK:-20}"
 # CSRNA_LOG and CSRNA_RUN_LOG_DIR passed in via --export from submit_array.sh

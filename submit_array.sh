@@ -7,8 +7,10 @@
 # Run on the LOGIN node:   ./submit_array.sh
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
-cd /weka/data/lab/duttke/personal/tnguyen/projects/TestRun4
-source ./config.env
+cd "${SLURM_SUBMIT_DIR}" 
+source "${SLURM_SUBMIT_DIR}/homerun/config.env"
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "${CSRNA_CONDA_ENV}"
 
 # Activate env so `python -m csrnaseq --count-samples` works on the login node
 module load "${CSRNA_CONDA_MODULE}" 2>/dev/null || true
