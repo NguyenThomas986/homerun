@@ -42,6 +42,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="csRNA-seq pipeline (trim → STAR → tagdirs → bedGraphs → TSS → QC → stability)",
     )
     p.add_argument("--project", help="Project root (default: $CSRNA_PROJECT or CWD).")
+    p.add_argument("--log-path", default=None,
+                   help="Pipeline log file path (overrides CSRNA_LOG; else a timestamped "
+                        "file under <project>/logs/).")
     p.add_argument("--steps", nargs="+", choices=STEP_ORDER,
                    help="Run only these steps (still executed in canonical order).")
     p.add_argument("--sample-index", type=int, default=None,
@@ -82,7 +85,7 @@ def run_pipeline(cfg, steps=None, skip_prepare=False, sample_index=None) -> None
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    cfg = load_config(args.project)
+    cfg = load_config(args)
 
     # --count-samples: clean stdout (no logging) for the array controller
     if args.count_samples:
@@ -98,6 +101,13 @@ def main(argv=None) -> int:
 
     setup_logging(cfg)
     log.info("Project: %s | genome=%s | threads=%d", cfg.project, cfg.genome, cfg.threads)
+
+    # --stage-raw: move loose root FASTQs into RawData/ and exit (used by the
+    # controller BEFORE --count-samples so the count sees the moved files).
+    if args.stage_raw:
+        prepare.stage_loose_fastqs(cfg)
+        return 0
+
     if args.sample_index is not None:
         log.info("Sample index: %d", args.sample_index)
 

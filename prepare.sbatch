@@ -20,4 +20,3 @@ LOG="${PROJECT}/logs_slurm/prepare_${SLURM_JOB_ID}.log"
 echo "[$(date)] prepare on $(hostname)"
 python -m csrnaseq --only-prepare --log-path "${LOG}" "$@"
 echo "[$(date)] prepare done"
-
