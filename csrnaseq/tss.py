@@ -36,4 +36,4 @@ def run_tss(cfg) -> None:
             log.info("  using total-RNA reference: %s", rna_dir.name)
         else:
             log.info("  no total-RNA reference for %s (stability will be unavailable)", prefix)
-        run(cmd, label=f"findcsRNATSS {prefix}")
+        run(cmd, label=f"findcsRNATSS {prefix}", cwd=cfg.tss)

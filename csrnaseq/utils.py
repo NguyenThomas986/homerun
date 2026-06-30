@@ -24,10 +24,17 @@ def setup_logging(cfg) -> None:
     log.info("Logging to %s", cfg.log_path)
 
 
-def run(cmd: str, label: str = "", check: bool = True) -> subprocess.CompletedProcess:
-    """Run a shell command, log output, and raise on failure (fail-fast)."""
-    log.info("\u25b6 %s", label or cmd)
-    job = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+def run(cmd: str, label: str = "", check: bool = True, cwd=None) -> subprocess.CompletedProcess:
+    """Run a shell command, log output, and raise on failure (fail-fast).
+
+    cwd: working directory for the command. Use this for tools (like
+    findcsRNATSS.pl) that write temp files to the current directory, so
+    those temp files land somewhere the user actually has write access to
+    (e.g. the project's TSS/ dir) instead of wherever the job happened to
+    start from.
+    """
+    log.info("▶ %s", label or cmd)
+    job = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=cwd)
     if job.stdout and job.stdout.strip():
         log.info(job.stdout.rstrip())
     if job.returncode != 0:
@@ -77,5 +84,5 @@ def check_tools(required=(), optional=()) -> list:
             missing.append(t)
     for t in optional:
         w = shutil.which(t)
-        log.info("  %-22s %s", t, (w or "not found") + " (optional)")
+        log.info("  %-22s %s", t, w or "not found (optional)")
     return missing
