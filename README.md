@@ -1,167 +1,98 @@
-# csRNA-seq Pipeline
+# homerun
 
-A SLURM-based pipeline for processing csRNA-seq data — trimming, alignment, tag directory construction, TSS calling, QC, and HTML report generation.
+This repository is the SLURM-oriented wrapper around the Python package in [csrnaseq](csrnaseq). It is meant to help you launch a complete csRNA-seq analysis workflow from a project directory on a cluster.
 
----
+## What this repo contains
 
-## Requirements
+- [submit_array.sh](submit_array.sh): submits the full three-phase workflow
+- [prepare.sbatch](prepare.sbatch): prepares the project and runs the initial setup
+- [align_array.sbatch](align_array.sbatch): runs trim + align for one sample per array task
+- [collect.sbatch](collect.sbatch): runs downstream analyses after the array finishes
+- [csrnaseq](csrnaseq): the Python package that actually performs the pipeline steps
 
-- HOMER (`homerTools`, `makeTagDirectory`, `makeUCSCfile`, `findcsRNATSS.pl`)
-- STAR or HISAT2
-- Python ≥ 3.10 with the `csrnaseq` package installed (see [Package README](csrnaseq/README.md))
-- Conda environment with all dependencies (default: `miniComputer`)
-- SLURM cluster
+## Typical workflow
 
----
-
-## Project layout
-
-```
-<project>/
-├── config.env              # all pipeline settings (edit this before running)
-├── submit_array.sh         # per-sample trim + align (SLURM array)
-├── collect.sh              # downstream steps: tagdirs → TSS → QC → report
-├── RawData/                # input FASTQ files (*_R1*.fastq.gz)
-├── Trimmed/                # trimmed reads
-├── Aligned/                # SAM files from STAR / HISAT2
-├── TagDirs/                # HOMER tag directories (*-combo)
-├── bedGraphs/              # strand-specific bedGraph files
-├── TSS/                    # findcsRNATSS output (*.tss.txt, *.alltss.txt, *.stats.txt)
-├── QC/                     # QC plots (PNG) and mapping stats
-├── Reports/                # generated HTML reports
-└── logs_slurm/             # SLURM stdout / stderr logs
-```
-
----
+1. Create a project directory and place your FASTQ files in it.
+2. Run the submission script with the required paths and cluster settings.
+3. Let the prepare, align-array, and collect stages run in sequence.
+4. Inspect the outputs in the project tree, especially the report and TSS directories.
 
 ## Quick start
 
-### 1. Configure
-
-Edit `config.env` — at minimum set these four variables:
-
 ```bash
-export CSRNA_ALIGNER="star"           # "star" or "hisat2"
-export CSRNA_GENOME_INDEX="/path/to/STARIndex"
-export CSRNA_GENOME="hg38"
-export CSRNA_PROJECT="/path/to/your/project"
+path/to/homerun/submit_array.sh \
+  --project /PATH/TO/PROJECT \
+  --partition kamiak \
+  --conda-env CONDA_ENV_NAME \
+  --genome-index /path/to/STARIndex \
+  --genome hg38
 ```
 
-See [Configuration reference](#configuration-reference) below for all options.
+The controller script will:
 
-### 2. Run
+- stage raw FASTQs into the project
+- submit a prepare job
+- submit a sample-array job for trim + align
+- submit a collect job that runs tagdirs, bedGraphs, TSS, QC, stability, and report
 
-```bash
-# Step 1 — trim + align (one SLURM job per sample, runs in parallel)
-sbatch submit_array.sh
+## All flags
 
-# Step 2 — everything downstream (runs once after the array finishes)
-sbatch collect.sh
-```
+Required:
 
-`collect.sh` runs these steps in order: `tagdirs → bedgraphs → tss → qc → stability → report`
-
-To run a single step manually:
-
-```bash
-csrnaseq --steps report
-csrnaseq --steps qc stability report
-```
-
----
-
-## Input file naming
-
-The pipeline classifies each sample by its filename. Files **must** contain one of these tags:
-
-| Tag | Library type | Notes |
-|---|---|---|
-| `_csRNA` | csRNA-seq | single-end, trimmed with homerTools |
-| `_sRNA` | spike-in control | single-end, trimmed with homerTools |
-| `_totalRNA` or `_RNA` | total RNA-seq | paired-end, trimmed with skewer |
-
-Example: `K562_csRNA_rep1_R1.fastq.gz`, `K562_sRNA_rep1_R1.fastq.gz`
-
----
-
-## Configuration reference
-
-All variables are set in `config.env` and loaded automatically by both SLURM scripts.
-
-### Aligner & genome
-
-| Variable | Default | Description |
-|---|---|---|
-| `CSRNA_ALIGNER` | `star` | Aligner to use: `star` or `hisat2` |
-| `CSRNA_GENOME_INDEX` | *(required)* | STAR `--genomeDir` directory or HISAT2 `-x` index prefix |
-| `CSRNA_GENOME` | *(required)* | HOMER `-genome` value (e.g. `hg38`) |
-| `CSRNA_STARINDEX_URL` | *(optional)* | URL to auto-download a STAR index tarball if none is found |
-
-### Project
-
-| Variable | Default | Description |
-|---|---|---|
-| `CSRNA_PROJECT` | *(required)* | Absolute path to the project root directory |
-| `CSRNA_COPY_SRC` | *(empty)* | Glob pattern for raw FASTQs to copy into `RawData/` before running |
-| `CSRNA_ARRAY_THROTTLE` | `16` | Max number of array tasks running simultaneously |
-
-### Trimming
-
-| Variable | Default | Description |
-|---|---|---|
-| `CSRNA_TRIM_ADAPTER` | `AGATCGGAAGAGCACACGTCT` | 3′ adapter sequence |
-| `CSRNA_TRIM_MINLEN` | `20` | Discard reads shorter than this after trimming |
-| `CSRNA_TRIM_MAXLEN` | `58` | Discard reads longer than this after trimming |
-
-### TSS calling
-
-| Variable | Default | Description |
-|---|---|---|
-| `CSRNA_NTAG_THRESHOLD` | `7` | Minimum tags to call a TSS cluster |
-| `CSRNA_SKIP_CHR` | `chrEBV` | Chromosome to exclude from bedGraphs |
-
-### Cluster
-
-| Variable | Default | Description |
-|---|---|---|
-| `CSRNA_CONDA_MODULE` | `anaconda3` | Cluster module providing Conda |
-| `CSRNA_CONDA_ENV` | `miniComputer` | Conda environment with pipeline dependencies |
-| `CSRNA_PARTITION` | `kamiak` | SLURM partition for job submission |
-| `CSRNA_EMAIL` | *(empty)* | Email address for SLURM job notifications |
-
----
-
-## Output files
-
-| Path | Contents |
+| Flag | Description |
 |---|---|
-| `TSS/<sample>.tss.txt` | Filtered TSS clusters with annotation |
-| `TSS/<sample>.alltss.txt` | All candidate TSS before score filtering |
-| `TSS/<sample>.stats.txt` | Run statistics from `findcsRNATSS.pl` |
-| `QC/*.png` | All QC plots |
-| `Reports/tss_clusters.html` | Interactive TSS cluster tables |
-| `Reports/alltss.html` | All pre-filter TSS candidates |
-| `Reports/stats.html` | Run statistics per sample |
-| `Reports/qc_report.html` | All QC plots + data files in one page |
+| `--project` | Path to your project directory |
+| `--partition` | SLURM partition name |
+| `--conda-env` | Conda environment with pipeline dependencies |
+| `--genome-index` | Path to STAR `--genomeDir` or HISAT2 `-x` index prefix |
+| `--genome` | HOMER genome name (e.g. `hg38`) |
 
----
+Optional:
 
-## Re-running steps
+| Flag | Default | Description |
+|---|---|---|
+| `--conda-module` | `anaconda3` | Cluster module that provides Conda |
+| `--aligner` | `star` | Aligner to use: `star` or `hisat2` |
+| `--throttle` | `16` | Max array tasks running at once |
+| `--email` | | Email address for SLURM notifications |
+| `--copy-src` | | Glob path to FASTQs to copy into `RawData/` if none are present |
+| `--starindex-url` | | URL to auto-download a STAR index tarball if none is found |
+| `--ntag-threshold` | `7` | Minimum tags to call a TSS cluster |
+| `--trim-min` | `20` | Discard reads shorter than this after trimming |
+| `--trim-max` | `58` | Discard reads longer than this after trimming |
+| `--trim-adapter` | `AGATCGGAAGAGCACACGTCT` | 3′ adapter sequence |
+| `--skip-chr` | `chrEBV` | Chromosome to exclude from bedGraphs |
 
-All steps are idempotent — outputs are skipped if they already exist. To re-run a step, delete its output first:
+To pass extra flags directly to the Python pipeline (e.g. STAR tuning):
 
 ```bash
-# Re-run QC and report only
-rm -rf QC/* Reports/*
-csrnaseq --steps qc stability report
-
-# Re-run TSS calling for one sample
-rm TSS/mysample.*
-csrnaseq --steps tss
+path/to/homerun/submit_array.sh \
+  --project /PATH/TO/PROJECT \
+  --partition kamiak \
+  --conda-env CONDA_ENV_NAME \
+  --genome-index /path/to/STARIndex \
+  --genome hg38 \
+  -- --star-filter-multimap 5000
 ```
 
----
+To see all the flags do:
 
-## Package documentation
+```bash
+path/to/homerun/submit_array.sh \
+    --h (or --help)
+```
 
-See [csrnaseq/README.md](csrnaseq/README.md) for installation instructions and a description of every module in the Python package.
+## Project layout
+
+The submission flow expects a project directory with these standard folders:
+
+- `RawData/`: input FASTQ files
+- `Trimmed/`, `Aligned/`: intermediate files
+- `TagDirs/`, `bedGraphs/`, `TSS/`: analysis outputs
+- `QC/`, `Reports/`: QC plots and HTML reports
+- `logs_slurm/`: SLURM logs
+
+## Notes
+
+- The repo is built around the `csrnaseq` CLI, so most of the actual processing logic lives in the package under [csrnaseq](csrnaseq).
+- For package-specific installation details, module descriptions, and CLI internals, see [csrnaseq/README.md](csrnaseq/README.md).
