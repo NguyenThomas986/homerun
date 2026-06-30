@@ -17,7 +17,7 @@ This repository is the SLURM-oriented wrapper around the Python package in [csrn
 3. Let the prepare, align-array, and collect stages run in sequence.
 4. Inspect the outputs in the project tree, especially the report and TSS directories.
 
-## Quick start
+## Quick start (w/o copying files and having fastqs in the project dir)
 
 ```bash
 path/to/homerun/submit_array.sh \
@@ -26,6 +26,18 @@ path/to/homerun/submit_array.sh \
   --conda-env CONDA_ENV_NAME \
   --genome-index /path/to/STARIndex \
   --genome hg38
+```
+
+## Quick start (with copying files via copy-src)
+
+```bash
+path/to/homerun/submit_array.sh \
+  --project /PATH/TO/PROJECT \
+  --partition kamiak \
+  --conda-env CONDA_ENV_NAME \
+  --genome-index /path/to/STARIndex \
+  --genome hg38 \
+  --copy-src /PATH/TO/*.FASTQ.GZ
 ```
 
 The controller script will:
