@@ -26,7 +26,7 @@ python -m csrnaseq --steps tagdirs bedgraphs tss qc stability report \
        --log-path "${LOG}" "$@"
 
 echo "[$(date)] cleaning up intermediate files"
-rm -rf "${PROJECT}/Trimmed" "${PROJECT}/Aligned" "${PROJECT}/RawData"
+rm -rf "${PROJECT}/Trimmed" "${PROJECT}/Aligned"
 echo "[$(date)] collect done"
 
 echo "[$(date)] collect done"
