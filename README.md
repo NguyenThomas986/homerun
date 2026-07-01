@@ -1,5 +1,12 @@
 # homerun
 
+<div align="center">
+
+[![Issues](https://img.shields.io/github/issues/NguyenThomas986/homerun.svg)](https://github.com/NguyenThomas986/homerun/issues)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+</div>
+
 This repository is the SLURM-oriented wrapper around the Python package in [csrnaseq](csrnaseq). It is meant to help you launch a complete csRNA-seq analysis workflow from a project directory on a cluster.
 
 ## What this repo contains
