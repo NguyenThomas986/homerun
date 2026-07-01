@@ -9,6 +9,7 @@
 
 This repository is the SLURM-oriented wrapper around the Python package in [csrnaseq](csrnaseq). It is meant to help you launch a complete csRNA-seq analysis workflow from a project directory on a cluster.
 
+
 ## What this repo contains
 
 - [submit_array.sh](submit_array.sh): submits the full three-phase workflow
@@ -100,6 +101,30 @@ To see all the flags do:
 path/to/homerun/submit_array.sh \
     --h (or --help)
 ```
+
+## Requirements
+
+The conda environment passed via `--conda-env` must provide:
+
+| Tool | Used for | Notes |
+|---|---|---|
+| [HOMER](http://homer.ucsd.edu/homer/) | Tag directories, bedGraphs, TSS calling/annotation | Must include `homerTools` on `PATH`; genome data for `--genome` (e.g. `hg38`) must be installed via `perl configureHomer.pl -install hg38` |
+| Python ≥3.9 | Runs the `csrnaseq` package | See [csrnaseq/README.md](csrnaseq/README.md) for Python package dependencies |
+| [STAR](https://github.com/alexdobin/STAR) or [HISAT2](http://daehwankimlab.github.io/hisat2/) | Read alignment | Select via `--aligner`; a matching pre-built genome index is required (`--genome-index`) |
+| SLURM | Job scheduling | Only required if using `submit_array.sh`. Tested on partitions with `sbatch`/`squeue`; `--partition` must be a valid partition on your cluster |
+
+**Not on a SLURM cluster?** The same HOMER/Python/STAR-or-HISAT2 requirements apply — SLURM is only used by `submit_array.sh` to schedule the jobs. The underlying `csrnaseq` Python package can be run directly (`python -m csrnaseq ...`) on any machine that meets the requirements above, without SLURM at all. See [csrnaseq/README.md](csrnaseq/README.md) for running it standalone.
+
+Quick check that required tools are available in your environment:
+
+```bash
+conda activate CONDA_ENV_NAME
+for t in homerTools STAR hisat2; do
+    command -v "$t" >/dev/null && echo "OK: $t" || echo "MISSING: $t"
+done
+```
+
+Note: only one of `STAR`/`hisat2` is required, depending on `--aligner`.
 
 ## Project layout
 
