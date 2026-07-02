@@ -95,6 +95,17 @@ def seq_type(name: str) -> str | None:
     return None
 
 
+def leaf_dir(r1: Path) -> Path:
+    """Given an R1 fastq Path at .../Species/Sample/<leaf>/RawData/<file>,
+    return the <leaf> directory itself (.../Species/Sample/<leaf>/).
+
+    Used by trim/mapping/tagdirs so each sample's Trimmed/Aligned/TagDir/
+    bedGraph outputs land next to its own RawData/, without re-parsing the
+    filename again — the directory structure already encodes it.
+    """
+    return r1.parent.parent
+
+
 def list_r1(cfg):
     """Sorted list of R1 FASTQs under every nested Species/Sample/<leaf>/RawData/ —
     the unit of array parallelism. The array task index maps 1:1 to this
