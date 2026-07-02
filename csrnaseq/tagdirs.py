@@ -1,56 +1,65 @@
 """Step 3 — HOMER tag directories.
 
-Builds two kinds of tag directories per sample:
-  • <sample>-combo     — all replicates merged together (existing behavior)
-  • <sample>_r<N>       — one tag dir per individual replicate SAM
+Builds two kinds of tag directories per sample, nested under
+Species/Sample/ instead of a flat project-level TagDirs/:
+  • Species/Sample/<assay>-combo/TagDir   — all replicates of that assay merged
+  • Species/Sample/<assay_rep>/TagDir     — one tag dir per individual replicate
 
-Both are built from the same aligned SAM files; the combo dir is unaffected
-by the addition of per-replicate dirs.
+Both are built from the same aligned SAM files (Species/Sample/<assay_rep>/Aligned/).
 """
 from __future__ import annotations
-import re
-from .utils import run, log, seq_type, done
+from collections import defaultdict
+from .utils import run, log, done, iter_leaf_dirs, assay_of_leaf
 
 
-def _make_tagdir(cmd_input_sams: str, tagdir, base: str, label: str, cfg) -> None:
+def _make_tagdir(cmd_input_sams: str, tagdir, assay: str, label: str, cfg) -> None:
     if done(tagdir):
-        log.info("  skip (done): %s", tagdir.name)
+        log.info("  skip (done): %s", tagdir)
         return
-    st = seq_type(base)
-    if st in ("csRNA", "sRNA"):
+    if assay in ("csRNA", "sRNA"):
         cmd = (f"makeTagDirectory {tagdir} {cmd_input_sams} "
                f"-genome {cfg.genome} -checkGC -fragLength 150 -omitSN")
-    elif st == "totalRNA":
+    elif assay == "totalRNA":
         cmd = (f"makeTagDirectory {tagdir} {cmd_input_sams} "
                f"-genome {cfg.genome} -checkGC -fragLength 150 -read2")
     else:
-        log.warning("tagdir: skipping untyped %s", base)
+        log.warning("tagdir: unrecognized assay '%s' for %s", assay, tagdir)
         return
     run(cmd, label=label)
 
 
 def run_tagdirs(cfg) -> None:
-    rep_sams = sorted(cfg.aligned.glob("*[_-]r1*.Aligned.out.sam"))
-    if not rep_sams:
-        log.info("tagdir: no *[_-]r1*.Aligned.out.sam in %s", cfg.aligned)
+    combo_groups: dict[tuple[str, str, str], list] = defaultdict(list)
+    any_found = False
+
+    for species, sample, leaf_dir in iter_leaf_dirs(cfg):
+        sams = sorted((leaf_dir / "Aligned").glob("*.Aligned.out.sam"))
+        if not sams:
+            continue
+        any_found = True
+
+        leaf_name = leaf_dir.name
+        assay = assay_of_leaf(leaf_name)
+        if not assay:
+            log.warning("tagdir: could not classify assay for %s/%s/%s",
+                        species, sample, leaf_name)
+            continue
+
+        # ── Per-replicate: one tag dir per individual leaf run ──────────────
+        sams_str = " ".join(str(s) for s in sams)
+        leaf_td = cfg.leaf_tagdir(species, sample, leaf_name)
+        _make_tagdir(sams_str, leaf_td, assay,
+                     f"tagdir {species}/{sample}/{leaf_name}", cfg)
+
+        combo_groups[(species, sample, assay)].extend(sams)
+
+    if not any_found:
+        log.info("tagdir: no *.Aligned.out.sam under nested Aligned/ dirs in %s", cfg.project)
         return
 
-    for sam in rep_sams:
-        base = re.split(r"[_-]r1", sam.name)[0]
-
-        # ── Combo: all replicates merged (existing behavior) ──────────────────
-        combo_dir  = cfg.tagdirs / f"{base}-combo"
-        combo_sams = f"{cfg.aligned}/{base}*.sam"
-        _make_tagdir(combo_sams, combo_dir, base, f"tagdir {base}-combo", cfg)
-
-        # ── Per-replicate: one tag dir per individual SAM ──────────────────────
-        rep_sams_for_base = sorted(cfg.aligned.glob(f"{base}[_-]r*.Aligned.out.sam"))
-        for rep_sam in rep_sams_for_base:
-            m = re.search(r"[_-](r\d+)", rep_sam.name)
-            if not m:
-                log.warning("tagdir: could not parse replicate label from %s", rep_sam.name)
-                continue
-            rep_label = m.group(1)
-            rep_dir   = cfg.tagdirs / f"{base}_{rep_label}"
-            _make_tagdir(str(rep_sam), rep_dir, base,
-                         f"tagdir {base}_{rep_label}", cfg)
+    # ── Combo: all replicates of an assay merged, at the sample level ───────
+    for (species, sample, assay), sams in combo_groups.items():
+        sams_str = " ".join(str(s) for s in sorted(set(sams)))
+        combo_td = cfg.combo_tagdir(species, sample, assay)
+        _make_tagdir(sams_str, combo_td, assay,
+                     f"tagdir {species}/{sample}/{assay}-combo", cfg)
