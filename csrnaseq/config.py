@@ -115,6 +115,33 @@ class Config:
         TagDir/bedGraph live."""
         return self.sample_dir(species, sample) / leaf_name
 
+    # ── Nested TagDir/bedGraph/QC/TSS paths (replace the old flat dirs) ───────
+    def leaf_tagdir(self, species: str, sample: str, leaf_name: str) -> Path:
+        """Species/Sample/<assay_rep>/TagDir — one per individual replicate."""
+        return self.run_dir(species, sample, leaf_name) / "TagDir"
+
+    def leaf_bedgraph(self, species: str, sample: str, leaf_name: str) -> Path:
+        """Species/Sample/<assay_rep>/bedGraph — one per individual replicate."""
+        return self.run_dir(species, sample, leaf_name) / "bedGraph"
+
+    def combo_dir(self, species: str, sample: str, assay: str) -> Path:
+        """Species/Sample/<assay>-combo/ — merged-replicate run for one assay."""
+        return self.sample_dir(species, sample) / f"{assay}-combo"
+
+    def combo_tagdir(self, species: str, sample: str, assay: str) -> Path:
+        return self.combo_dir(species, sample, assay) / "TagDir"
+
+    def combo_bedgraph(self, species: str, sample: str, assay: str) -> Path:
+        return self.combo_dir(species, sample, assay) / "bedGraph"
+
+    def sample_qc(self, species: str, sample: str) -> Path:
+        """Species/Sample/QC — one QC dir per sample, covering all assays."""
+        return self.sample_dir(species, sample) / "QC"
+
+    def sample_tss(self, species: str, sample: str) -> Path:
+        """Species/Sample/TSS — one TSS dir per sample."""
+        return self.sample_dir(species, sample) / "TSS"
+
 
 def load_config(args=None) -> Config:
     # --project flag (if given) overrides CSRNA_PROJECT; else env; else CWD.
