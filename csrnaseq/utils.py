@@ -116,6 +116,57 @@ def list_r1(cfg):
     )
 
 
+def assay_of_leaf(leaf_name: str) -> str | None:
+    """Classify a leaf directory name like 'csRNA_r1' or 'csRNAseq_r2' into
+    csRNA / sRNA / totalRNA. Unlike seq_type(), this does NOT require a
+    leading underscore before the assay token, since leaf names (produced by
+    parse_sample_name) already have the species/sample prefix stripped off —
+    e.g. 'csRNA_r1' rather than '..._csRNA_r1'.
+    """
+    base = re.sub(r"_r(ep)?\d+$", "", leaf_name)
+    low = base.lower()
+    if low.startswith("csrna"):
+        return "csRNA"
+    if low.startswith("srna"):
+        return "sRNA"
+    if low.startswith("totalrna") or low.startswith("rna"):
+        return "totalRNA"
+    return None
+
+
+def replicate_of_leaf(leaf_name: str) -> str | None:
+    """Extract the replicate marker ('r1', 'r2', ...) from a leaf dir name."""
+    m = re.search(r"_(r(ep)?\d+)$", leaf_name)
+    return m.group(1) if m else None
+
+
+def iter_leaf_dirs(cfg):
+    """Yield (species, sample, leaf_dir) for every nested
+    Species/Sample/<leaf>/ directory under the project that has a RawData/
+    subdir — the same set of runs list_r1() draws its R1 files from, but
+    exposed as directories rather than individual FASTQs (used by steps that
+    key off the leaf dir itself, e.g. tagdirs/bedgraphs)."""
+    for rawdata in sorted(cfg.project.glob("*/*/*/RawData")):
+        if not rawdata.is_dir():
+            continue
+        leaf = rawdata.parent
+        sample = leaf.parent
+        species = sample.parent
+        yield species.name, sample.name, leaf
+
+
+def iter_samples(cfg):
+    """Yield (species, sample) pairs for every nested Species/Sample/ that
+    has at least one leaf run dir — the unit of iteration for sample-level
+    outputs (QC/, TSS/)."""
+    seen = set()
+    for species, sample, _leaf in iter_leaf_dirs(cfg):
+        key = (species, sample)
+        if key not in seen:
+            seen.add(key)
+            yield key
+
+
 def check_tools(required=(), optional=()) -> list:
     """Log tool availability; return list of missing required tools."""
     log.info("Tool availability:")
