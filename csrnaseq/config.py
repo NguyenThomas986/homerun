@@ -105,6 +105,16 @@ class Config:
         return [self.rawdata, self.trimmed, self.aligned, self.tagdirs,
                 self.bedgraphs, self.tss, self.qc, self.reports]
 
+    # ── Species/Sample nested-layout helpers (always used, not opt-in) ────────
+    def sample_dir(self, species: str, sample: str) -> Path:
+        """Species/Sample/ — where per-sample QC and TSS live."""
+        return self.project / species / sample
+
+    def run_dir(self, species: str, sample: str, leaf_name: str) -> Path:
+        """Species/Sample/<assay_rep>/ — where per-run RawData/Trimmed/Aligned/
+        TagDir/bedGraph live."""
+        return self.sample_dir(species, sample) / leaf_name
+
 
 def load_config(args=None) -> Config:
     # --project flag (if given) overrides CSRNA_PROJECT; else env; else CWD.
