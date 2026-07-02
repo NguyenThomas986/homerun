@@ -1,121 +1,118 @@
-#!/bin/bash
-# ─────────────────────────────────────────────────────────────────────────────
-# Controller: submits the 3-phase job-array pipeline with dependencies.
-#
-#   prepare ──afterok──> align_array[0..N-1] ──afterok──> collect
-#
-# No config.env. All settings are command-line flags. Launch from anywhere:
-#
-#   /path/to/homerun/submit_array.sh \
-#       --project /path/to/proj --partition kamiak --conda-env miniComputer \
-#       --genome-index /path/to/STARIndex --genome hg38 \
-#       [--conda-module anaconda3] [--aligner star|hisat2] [--throttle 16] \
-#       [--email you@wsu.edu] [--copy-src '/src/*_R1*'] \
-#       [-- <extra python flags, e.g. --trim-min 18 --star-filter-multimap 5000>]
-# ─────────────────────────────────────────────────────────────────────────────
-set -euo pipefail
+"""Preparation: create folders, stage loose FASTQs, copy raw FASTQs, ensure STARIndex exists.
 
-usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+FASTQs always land under the nested Species/Sample/<assay_rep>/RawData/ layout
+(see Config.run_dir / utils.parse_sample_name) — there is no flat fallback.
+"""
+from __future__ import annotations
+import glob
+import shutil
+from pathlib import Path
+from .utils import run, log, parse_sample_name
 
-# ── Defaults ──────────────────────────────────────────────────────────────────
-CONDA_MODULE="anaconda3"
-ALIGNER="star"
-THROTTLE="16"
-EMAIL=""
-COPY_SRC=""
-PROJECT="" ; PARTITION="" ; CONDA_ENV="" ; GENOME_INDEX="" ; GENOME=""
-EXTRA=()
+def setup_dirs(cfg) -> None:
+    # Only the project-wide logs/ dir is created up front; per-sample
+    # RawData/Trimmed/Aligned/TagDir/bedGraph/QC/TSS dirs are all created on
+    # demand as each sample's files are discovered (their paths depend on
+    # parsing the filename, which we don't know until we see it).
+    d = cfg.logs_dir
+    existed = d.is_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    log.info("  %s  %s", "exists " if existed else "CREATED", d)
 
-# ── Parse args ────────────────────────────────────────────────────────────────
-while [ $# -gt 0 ]; do
-    case "$1" in
-        --project)       PROJECT="$2"; shift 2 ;;
-        --partition)     PARTITION="$2"; shift 2 ;;
-        --conda-env)     CONDA_ENV="$2"; shift 2 ;;
-        --conda-module)  CONDA_MODULE="$2"; shift 2 ;;
-        --genome-index)  GENOME_INDEX="$2"; shift 2 ;;
-        --genome)        GENOME="$2"; shift 2 ;;
-        --aligner)       ALIGNER="$2"; shift 2 ;;
-        --throttle)      THROTTLE="$2"; shift 2 ;;
-        --email)         EMAIL="$2"; shift 2 ;;
-        --copy-src)      COPY_SRC="$2"; shift 2 ;;
-        -h|--help)       usage 0 ;;
-        --)              shift; EXTRA=("$@"); break ;;
-        *) echo "Unknown option: $1" >&2; usage 1 ;;
-    esac
-done
+def _stage_one(cfg, src: Path) -> None:
+    """Parse src's filename and move/copy it into its nested RawData/ dir."""
+    species, sample, leaf = parse_sample_name(src.name)
+    dst_dir = cfg.run_dir(species, sample, leaf) / "RawData"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / src.name
+    if dst.exists():
+        log.warning("stage: %s already exists at %s — leaving source in place.",
+                    src.name, dst_dir)
+        return dst
+    shutil.move(str(src), str(dst)) if src.exists() else None
+    log.info("stage: moved %s -> %s/", src.name, dst_dir)
+    return dst
 
-# ── Validate required ─────────────────────────────────────────────────────────
-miss=""
-[ -n "${PROJECT}" ]      || miss="${miss} --project"
-[ -n "${PARTITION}" ]    || miss="${miss} --partition"
-[ -n "${CONDA_ENV}" ]    || miss="${miss} --conda-env"
-[ -n "${GENOME_INDEX}" ] || miss="${miss} --genome-index"
-[ -n "${GENOME}" ]       || miss="${miss} --genome"
-[ -z "${miss}" ] || { echo "ERROR: missing required:${miss}" >&2; usage 1; }
+def copy_raw(cfg) -> None:
+    """Copy FASTQs matched by cfg.copy_src directly into their nested RawData/ dirs.
 
-# Find the .sbatch job files (they sit next to this script)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "${SCRIPT_DIR}"
+    Each matched file is parsed individually (species/sample/leaf), unlike a
+    flat `cp -r glob dest/`, since the destination now depends on the
+    filename itself.
+    """
+    if not cfg.copy_src:
+        log.info("copy_src empty — skipping raw copy.")
+        return
+    matches = sorted(Path(p) for p in glob.glob(cfg.copy_src) if Path(p).is_file())
+    if not matches:
+        log.warning("copy_src '%s' matched no files.", cfg.copy_src)
+        return
+    for src in matches:
+        try:
+            species, sample, leaf = parse_sample_name(src.name)
+        except ValueError as exc:
+            log.warning("copy_raw: skipping %s (%s)", src.name, exc)
+            continue
+        dst_dir = cfg.run_dir(species, sample, leaf) / "RawData"
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        dst = dst_dir / src.name
+        if dst.exists():
+            log.warning("copy_raw: %s already exists at %s — skipping.", src.name, dst_dir)
+            continue
+        run(f"cp {src} {dst}", label=f"copy raw {src.name}")
 
-# Make `python -m csrnaseq` importable WITHOUT pip install: SCRIPT_DIR is the
-# repo dir that contains the csrnaseq/ package, so it goes on PYTHONPATH here
-# (for the login-node calls) and is forwarded to every job below.
-export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
+def stage_loose_fastqs(cfg) -> None:
+    """Move loose *_R1*/*_R2* FASTQs sitting in the project ROOT into their
+    nested Species/Sample/<assay_rep>/RawData/ dir.
 
-# Activate env so the login-node python calls below work
-module load "${CONDA_MODULE}" 2>/dev/null || true
-source "$(conda info --base)/etc/profile.d/conda.sh" 2>/dev/null || true
-conda activate "${CONDA_ENV}" 2>/dev/null || true
-export PYTHONNOUSERSITE=1
+    Non-recursive (only the project root is scanned, never subdirs), so files
+    already staged are untouched. If a same-named file already exists at the
+    destination, the loose copy is LEFT IN PLACE (never clobbered) and a
+    warning is logged. Filenames that don't parse (no replicate marker) are
+    skipped with a warning rather than crashing the whole prepare step.
+    Safe to call repeatedly — a no-op once everything is staged.
+    """
+    loose = sorted(
+        p for p in cfg.project.glob("*")
+        if p.is_file()
+        and ("_R1" in p.name or "_R2" in p.name)
+        and (p.name.endswith(".fastq") or p.name.endswith(".fastq.gz"))
+    )
+    if not loose:
+        log.info("stage: no loose FASTQs in project root — nothing to move.")
+        return
+    for src in loose:
+        try:
+            _stage_one(cfg, src)
+        except ValueError as exc:
+            log.warning("stage: skipping %s (%s)", src.name, exc)
 
-if [ ! -d "${PROJECT}" ]; then
-    echo "ERROR: --project does not exist: ${PROJECT}" >&2
-    echo "  Create it first (this script will not fabricate the path)." >&2
-    exit 1
-fi
-LOG_DIR="${PROJECT}/logs_slurm"
-mkdir -p "${LOG_DIR}"
+def ensure_starindex(cfg) -> None:
+    if cfg.aligner != "star":
+        log.info("ensure_starindex: aligner is '%s' — skipping.", cfg.aligner)
+        return
+    si = cfg.starindex
+    if si.is_dir() and any(si.iterdir()):
+        log.info("STARIndex present: %s", si)
+        return
+    if not cfg.starindex_url:
+        raise ValueError(
+            "STARIndex not found and CSRNA_STARINDEX_URL is not set. "
+            "Either set CSRNA_GENOME_INDEX to an existing index, or set "
+            "CSRNA_STARINDEX_URL to download it automatically."
+        )
+    tarball = cfg.project / "GSE287021_STARIndex_hg38.tar.gz"
+    run(f"wget -O {tarball} '{cfg.starindex_url}'", label="download STARIndex")
+    run(f"tar -xvzf {tarball} -C {cfg.project}", label="extract STARIndex")
+    run(f"rm -f {tarball}", label="cleanup tarball")
+    log.info("STARIndex extracted to %s", si)
 
-# ── Plumbing args (positional) + python flags (forwarded to every phase) ──────
-PLUMBING=( "${CONDA_MODULE}" "${CONDA_ENV}" "${PROJECT}" "${SCRIPT_DIR}" )
-PY_ARGS=( --project "${PROJECT}" --aligner "${ALIGNER}"
-          --genome-index "${GENOME_INDEX}" --genome "${GENOME}" )
-[ -n "${COPY_SRC}" ] && PY_ARGS+=( --copy-src "${COPY_SRC}" )
-[ ${#EXTRA[@]} -gt 0 ] && PY_ARGS+=( "${EXTRA[@]}" )
-
-# Stage loose FASTQs, then count samples
-python -m csrnaseq "${PY_ARGS[@]}" --stage-raw
-N=$(python -m csrnaseq "${PY_ARGS[@]}" --count-samples)
-if [ "${N}" -eq 0 ] && [ -n "${COPY_SRC}" ]; then
-    echo "RawData empty — running prepare now to copy from ${COPY_SRC} ..."
-    # NOTE: --only-prepare also runs ensure_starindex(); if --genome-index
-    # already points at an existing, non-empty directory (the normal case)
-    # this is a no-op, but if it's missing AND CSRNA_STARINDEX_URL is set,
-    # this will download the STARIndex tarball on the login node.
-    python -m csrnaseq "${PY_ARGS[@]}" --only-prepare
-    N=$(python -m csrnaseq "${PY_ARGS[@]}" --count-samples)
-fi
-[ "${N}" -ge 1 ] || { echo "ERROR: no *_R1* FASTQs in ${PROJECT}/RawData"; exit 1; }
-echo "Found ${N} sample file(s) → array 0-$((N-1))"
-
-# ── SLURM options ─────────────────────────────────────────────────────────────
-SOPTS="--partition=${PARTITION} --mail-type=ALL"
-[ -n "${EMAIL}" ] && SOPTS="${SOPTS} --mail-user=${EMAIL}"
-
-PREP=$(sbatch --parsable ${SOPTS} \
-       --output="${LOG_DIR}/prepare-%j.out" --error="${LOG_DIR}/prepare-%j.err" \
-       prepare.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-ARRAY=$(sbatch --parsable ${SOPTS} --dependency=afterok:${PREP} \
-        --output="${LOG_DIR}/align-%A_%a.out" --error="${LOG_DIR}/align-%A_%a.err" \
-        --array=0-$((N-1))%"${THROTTLE}" \
-        align_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-COLLECT=$(sbatch --parsable ${SOPTS} --dependency=afterok:${ARRAY} \
-          --output="${LOG_DIR}/collect-%j.out" --error="${LOG_DIR}/collect-%j.err" \
-          collect.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-
-echo "Submitted:"
-echo "  prepare     = ${PREP}"
-echo "  align_array = ${ARRAY}   (tasks 0-$((N-1)), <= ${THROTTLE} concurrent)"
-echo "  collect     = ${COLLECT} (runs after all array tasks succeed)"
-echo "Watch with: sq   |   logs in ${LOG_DIR}/"
+def prepare(cfg) -> None:
+    log.info("=== PREPARE: folders / stage loose / raw copy / STARIndex ===")
+    setup_dirs(cfg)
+    stage_loose_fastqs(cfg)
+    copy_raw(cfg)
+    if cfg.aligner == "star":
+        ensure_starindex(cfg)
+    else:
+        log.info("Aligner is %s — skipping STARIndex.", cfg.aligner)
