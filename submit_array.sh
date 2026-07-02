@@ -75,7 +75,7 @@ if [ ! -d "${PROJECT}" ]; then
     exit 1
 fi
 LOG_DIR="${PROJECT}/logs_slurm"
-mkdir -p "${LOG_DIR}" "${PROJECT}/RawData"
+mkdir -p "${LOG_DIR}"
 
 # ── Plumbing args (positional) + python flags (forwarded to every phase) ──────
 PLUMBING=( "${CONDA_MODULE}" "${CONDA_ENV}" "${PROJECT}" "${SCRIPT_DIR}" )
@@ -88,8 +88,12 @@ PY_ARGS=( --project "${PROJECT}" --aligner "${ALIGNER}"
 python -m csrnaseq "${PY_ARGS[@]}" --stage-raw
 N=$(python -m csrnaseq "${PY_ARGS[@]}" --count-samples)
 if [ "${N}" -eq 0 ] && [ -n "${COPY_SRC}" ]; then
-    echo "RawData empty — copying from ${COPY_SRC} ..."
-    cp -r ${COPY_SRC} "${PROJECT}/RawData"/
+    echo "RawData empty — running prepare now to copy from ${COPY_SRC} ..."
+    # NOTE: --only-prepare also runs ensure_starindex(); if --genome-index
+    # already points at an existing, non-empty directory (the normal case)
+    # this is a no-op, but if it's missing AND CSRNA_STARINDEX_URL is set,
+    # this will download the STARIndex tarball on the login node.
+    python -m csrnaseq "${PY_ARGS[@]}" --only-prepare
     N=$(python -m csrnaseq "${PY_ARGS[@]}" --count-samples)
 fi
 [ "${N}" -ge 1 ] || { echo "ERROR: no *_R1* FASTQs in ${PROJECT}/RawData"; exit 1; }

@@ -26,7 +26,5 @@ python -m csrnaseq --steps tagdirs bedgraphs tss qc stability report \
        --log-path "${LOG}" "$@"
 
 echo "[$(date)] cleaning up intermediate files"
-rm -rf "${PROJECT}/Trimmed" "${PROJECT}/Aligned"
-echo "[$(date)] collect done"
-
+find "${PROJECT}" -mindepth 4 -maxdepth 4 -type d \( -name Trimmed -o -name Aligned \) -exec rm -rf {} +
 echo "[$(date)] collect done"
