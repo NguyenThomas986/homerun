@@ -10,14 +10,14 @@ from pathlib import Path
 from .utils import run, log, parse_sample_name
 
 def setup_dirs(cfg) -> None:
-    # Only project-wide dirs are created up front; per-sample RawData/Trimmed/
-    # Aligned/TagDir/bedGraph/QC/TSS dirs are created on demand as each
-    # sample's files are discovered (their paths depend on parsing the
-    # filename, which we don't know until we see it).
-    for d in (cfg.logs_dir, cfg.reports):
-        existed = d.is_dir()
-        d.mkdir(parents=True, exist_ok=True)
-        log.info("  %s  %s", "exists " if existed else "CREATED", d)
+    # Only the project-wide logs/ dir is created up front; per-sample
+    # RawData/Trimmed/Aligned/TagDir/bedGraph/QC/TSS dirs are all created on
+    # demand as each sample's files are discovered (their paths depend on
+    # parsing the filename, which we don't know until we see it).
+    d = cfg.logs_dir
+    existed = d.is_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    log.info("  %s  %s", "exists " if existed else "CREATED", d)
 
 def _stage_one(cfg, src: Path) -> None:
     """Parse src's filename and move/copy it into its nested RawData/ dir."""

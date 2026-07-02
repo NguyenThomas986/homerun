@@ -80,30 +80,12 @@ class Config:
     starindex_url: str = ""           # set via CSRNA_STARINDEX_URL in config.env
 
     # ── Derived directories ───────────────────────────────────────────────────
-    @property
-    def rawdata(self) -> Path:   return self.project / "RawData"
-    @property
-    def trimmed(self) -> Path:   return self.project / "Trimmed"
-    @property
-    def aligned(self) -> Path:   return self.project / "Aligned"
-    @property
-    def tagdirs(self) -> Path:   return self.project / "TagDirs"
-    @property
-    def bedgraphs(self) -> Path: return self.project / "bedGraphs"
-    @property
-    def tss(self) -> Path:       return self.project / "TSS"
-    @property
-    def qc(self) -> Path:        return self.project / "QC"
+    # NOTE: RawData/Trimmed/Aligned/TagDir/bedGraph/QC/TSS are all nested under
+    # Species/Sample/ (see below) — there is no flat project-level equivalent.
     @property
     def logs_dir(self) -> Path:  return self.project / "logs"
     @property
-    def reports(self) -> Path:   return self.project / "Reports"
-    @property
     def starindex(self) -> Path: return Path(self.genome_index)
-
-    def output_dirs(self):
-        return [self.rawdata, self.trimmed, self.aligned, self.tagdirs,
-                self.bedgraphs, self.tss, self.qc, self.reports]
 
     # ── Species/Sample nested-layout helpers (always used, not opt-in) ────────
     def sample_dir(self, species: str, sample: str) -> Path:
