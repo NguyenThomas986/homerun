@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -54,6 +55,35 @@ def done(path) -> bool:
     return p.is_dir() or (p.is_file() and p.stat().st_size > 0)
 
 
+def parse_sample_name(filename: str) -> tuple[str, str, str]:
+    """Parse 'homo_sapiens_K562_csRNA_r1...' -> ('homo_sapiens', 'K562', 'csRNA_r1').
+
+    Splits on both '-' and '_' (so '-r2' and '_r2' are equivalent), then
+    truncates at the first replicate marker (r1, r2, rep1...). Everything
+    after the marker (lane/index/sequencer metadata) is discarded. Raises
+    ValueError if no replicate marker is found.
+    """
+    stem = filename.split(".")[0]
+    tokens = re.split(r"[-_]", stem)
+    # Only lowercase 'r1'/'rep2' etc. count as a replicate marker. Illumina
+    # read-tags (R1/R2) are conventionally uppercase and must NOT match here,
+    # or a filename with no real replicate marker before its R1/R2 read tag
+    # would silently misparse (see test_illumina_r1_tag_is_not_a_replicate).
+    rep_idx = next(
+        (i for i, t in enumerate(tokens) if re.fullmatch(r"r(ep)?\d+", t)),
+        None,
+    )
+    if rep_idx is None:
+        raise ValueError(f"parse_sample_name: no replicate marker (r1, rep2...) in '{filename}'")
+    relevant = tokens[: rep_idx + 1]
+    if len(relevant) < 3:
+        raise ValueError(f"parse_sample_name: not enough tokens before replicate marker in '{filename}'")
+    species = f"{relevant[0]}_{relevant[1]}".lower()
+    sample = relevant[2]
+    leaf_name = "_".join(relevant[3:]) or relevant[-1]
+    return species, sample, leaf_name
+
+
 def seq_type(name: str) -> str | None:
     """Classify a filename/sample by library tag. Handles _RNA and _totalRNA."""
     if "_csRNA" in name:
@@ -66,11 +96,13 @@ def seq_type(name: str) -> str | None:
 
 
 def list_r1(cfg):
-    """Sorted list of R1 FASTQs in RawData — the unit of array parallelism.
-    The array task index maps 1:1 to this (deterministic) ordering."""
-    raw = cfg.rawdata
-    return sorted(p for p in raw.glob("*_R1*")
-                  if p.name.endswith(".fastq") or p.name.endswith(".fastq.gz"))
+    """Sorted list of R1 FASTQs under every nested Species/Sample/<leaf>/RawData/ —
+    the unit of array parallelism. The array task index maps 1:1 to this
+    (deterministic) ordering."""
+    return sorted(
+        p for p in cfg.project.glob("*/*/*/RawData/*_R1*")
+        if p.name.endswith(".fastq") or p.name.endswith(".fastq.gz")
+    )
 
 
 def check_tools(required=(), optional=()) -> list:
