@@ -44,6 +44,10 @@ _QC_CSS = _COMMON_CSS + """
   .img-item img { max-width: 100%; width: auto; height: auto;
                   border: 1px solid #e5e5e5; border-radius: 2px;
                   display: block; padding: 8px; background: #fff; }
+  .img-caption { margin-top: 12px; border-left: 3px solid #e5e5e5; padding-left: 16px; }
+  .img-caption .cap-source { font-size: 10px; font-weight: 600; text-transform: uppercase;
+                             letter-spacing: 0.07em; color: #aaa; margin-bottom: 4px; }
+  .img-caption .cap-desc { font-size: 12px; color: #333; line-height: 1.55; }
   .data-section h2 { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500;
                      color: #888; margin-bottom: 8px; text-transform: uppercase;
                      letter-spacing: 0.08em; }
@@ -52,14 +56,84 @@ _QC_CSS = _COMMON_CSS + """
 _IMG_ORDER = [
     "tagdir_stats", "read_length_distribution", "nucleotide_frequency",
     "median_tags_per_position",
-    "csRNA_Aplot", "sRNA_Aplot", "totalRNA_Aplot", "combined_Aplot",
+    "Aplot",
     "tss_nucleotide_frequency",
-    "csRNA_tagsPer_Vs_FracofPos", "sRNA_tagsPer_Vs_FracofPos",
-    "totalRNA_tagsPer_Vs_FracofPos", "combined_tagsPer_Vs_FracofPos",
+    "tagsPer_Vs_FracofPos",
     "autocorrelation", "threshold_optimization",
     "tsr_summary", "tsr_annotation",
     "stability_by_location_stacked_bar", "location_stacked_bar", "tsr_pie",
 ]
+
+# key: filename stem prefix (matched with startswith) -> (source, short description)
+_IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
+    "tagdir_stats": (
+        "tagInfo.txt (combo TagDirs)",
+        "Summary of basic sequencing stats for each combo library.",
+    ),
+    "read_length_distribution": (
+        "tagLengthDistribution.txt (combo TagDirs)",
+        "Read length distribution for each combo library.",
+    ),
+    "nucleotide_frequency": (
+        "tagFreqUniq.txt (combo TagDirs)",
+        "Base composition near the start of each read, per library — a "
+        "pre-TSS-calling check on library quality.",
+    ),
+    "median_tags_per_position": (
+        "tagCountDistribution.txt (combo TagDirs)",
+        "Median reads per genomic position for each library — checks for "
+        "PCR (Polymerase Chain Reaction) duplication.",
+    ),
+    "Aplot": (
+        "tagFreqUniq.txt (csRNA + sRNA combo TagDirs)",
+        "A-frequency near the TSS, csRNA vs. sRNA overlaid.",
+    ),
+    "tss_nucleotide_frequency": (
+        "*.freq.tsv (TSS/)",
+        "Base composition around the called primary TSS — checks whether "
+        "the called TSS positions look biologically real.",
+    ),
+    "tagsPer_Vs_FracofPos": (
+        "tagCountDistribution.txt (csRNA + sRNA combo TagDirs)",
+        "Read-depth distribution across genomic positions, csRNA vs. sRNA.",
+    ),
+    "autocorrelation": (
+        "tagAutocorrelation.txt (combo TagDirs)",
+        "How reads cluster relative to each other and to strand.",
+    ),
+    "threshold_optimization": (
+        "*.inputDistribution.txt (TSS/)",
+        "The best mathematical cutoff for calling TSSs, based on the read-depth distribution of the sample(s).",
+    ),
+    "tsr_summary": (
+        "*.stats.txt (TSS/)",
+        "Summary table of key TSS-calling numbers per sample.",
+    ),
+    "tsr_annotation": (
+        "*.tss.txt (TSS/)",
+        "Genomic annotation breakdown of the called TSR clusters.",
+    ),
+    "stability_by_location_stacked_bar": (
+        "*.tss.txt (TSS/)",
+        "Stable vs. unstable TSRs, split by genomic location. Requires total RNA.",
+    ),
+    "location_stacked_bar": (
+        "*.tss.txt (TSS/)",
+        "TSRs by genomic location, shown when total RNA isn't available.",
+    ),
+    "tsr_pie": (
+        "*.tss.txt (TSS/)",
+        "Pooled stable/unstable (or distal/proximal) split across the sample.",
+    ),
+}
+
+
+def _get_description(stem: str) -> tuple[str, str] | None:
+    """Return (source, description) for a plot stem, or None."""
+    for prefix, desc in _IMG_DESCRIPTIONS.items():
+        if stem == prefix or stem.startswith(prefix):
+            return desc
+    return None
 
 
 def _img_sort_key(name: str) -> tuple:
@@ -110,9 +184,18 @@ def _build_qc_html(species: str, sample: str, qc_dir: Path, now: str) -> str:
         for f in imgs:
             try:
                 b64 = base64.b64encode(f.read_bytes()).decode()
+                desc = _get_description(f.stem)
+                caption_html = ""
+                if desc:
+                    source, text = desc
+                    caption_html = (f'<div class="img-caption">'
+                                    f'<div class="cap-source">Source: {source}</div>'
+                                    f'<div class="cap-desc">{text}</div>'
+                                    f'</div>')
                 items += (f'<div class="img-item">'
                           f'<div class="img-name">{f.name}</div>'
                           f'<img src="data:image/png;base64,{b64}" alt="{f.name}">'
+                          f'{caption_html}'
                           f"</div>")
             except Exception as exc:
                 log.warning("report: could not embed %s: %s", f.name, exc)
