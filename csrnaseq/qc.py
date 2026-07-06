@@ -119,52 +119,6 @@ def _median_tags_bar_merged(cfg, species, sample, qc_dir) -> None:
     log.info("QC: median_tags_per_position.png")
 
 
-def _tags_vs_frac(cfg, species, sample, assay: str, label: str, fname: str, qc_dir) -> None:
-    """Log-log scatter of tags-per-position vs fraction-of-positions."""
-    d = _combo(cfg, species, sample, assay)
-    if not d or not (d / "tagCountDistribution.txt").exists():
-        log.info("QC tags-vs-frac (%s): no tagCountDistribution.txt found.", assay); return
-
-    df = pd.read_csv(d / "tagCountDistribution.txt", sep="\t")
-    median_val = str(list(df.columns)).split("=")[1].split(",")[0].strip()
-    col = f"{_label(d)} ({median_val})"
-    df.columns = ["Tags per tag position", col]
-    df = df.set_index("Tags per tag position").replace(0, np.nan)
-    stacked = df.stack().reset_index()
-    stacked.columns = ["Tags per tag position", "Library", "Fraction of Positions"]
-    stacked["Tags per tag position"] = np.log(stacked["Tags per tag position"])
-    stacked["Fraction of Positions"] = np.log(stacked["Fraction of Positions"])
-
-    plt.figure(figsize=(6, 5))
-    ax = sns.scatterplot(data=stacked, x="Tags per tag position", y="Fraction of Positions", alpha=0.5)
-    ax.set_title(f"{label} — tags vs fraction ({col})")
-    plt.tight_layout()
-    plt.savefig(qc_dir / fname, dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: %s", fname)
-
-
-def _a_plot(cfg, species, sample, assay: str, label: str, fname: str, qc_dir) -> None:
-    """A-frequency plot near TSS for the combo tagdir of a given assay."""
-    d = _combo(cfg, species, sample, assay)
-    if not d or not (d / "tagFreqUniq.txt").exists():
-        log.info("QC A-plot (%s): no tagFreqUniq.txt found.", assay); return
-
-    df = pd.read_csv(d / "tagFreqUniq.txt", sep="\t")
-    df = df.iloc[:, :5].set_index("Offset")
-    stacked = df.stack().reset_index()
-    stacked.columns = ["Distance to TSS", "nt", "pct"]
-    stacked["Library"] = _label(d)
-    stacked = stacked[stacked["nt"] == "A"]
-
-    plt.figure(figsize=(12, 5))
-    ax = sns.lineplot(data=stacked, x="Distance to TSS", y="pct",
-                      hue="Library", linewidth=2, alpha=0.7)
-    ax.set_ylabel("A [%]"); ax.set_title(f"{label} — A-plot (nucleotide frequency near TSS)")
-    sns.move_legend(ax, "upper right"); plt.tight_layout()
-    plt.savefig(qc_dir / fname, dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: %s", fname)
-
-
 def qc_threshold_optimization(cfg, species, sample, qc_dir) -> None:
     """Threshold optimization plot from prefix.inputDistribution.txt files."""
     files = sorted(cfg.sample_tss(species, sample).glob("*.inputDistribution.txt"))
@@ -389,8 +343,8 @@ def _tags_vs_frac_combined(cfg, species, sample, qc_dir) -> None:
     ax.set_title("csRNA + sRNA — tags vs fraction of positions")
     sns.move_legend(ax, "upper right")
     plt.tight_layout()
-    plt.savefig(qc_dir / "combined_tagsPer_Vs_FracofPos.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: combined_tagsPer_Vs_FracofPos.png")
+    plt.savefig(qc_dir / "tagsPer_Vs_FracofPos.png", dpi=150, bbox_inches="tight"); plt.close()
+    log.info("QC: tagsPer_Vs_FracofPos.png")
 
 
 def _a_plot_combined(cfg, species, sample, qc_dir) -> None:
@@ -416,8 +370,8 @@ def _a_plot_combined(cfg, species, sample, qc_dir) -> None:
                       hue="Library", linewidth=2, alpha=0.7)
     ax.set_ylabel("A [%]"); ax.set_title("csRNA + sRNA — A-plot")
     sns.move_legend(ax, "upper right"); plt.tight_layout()
-    plt.savefig(qc_dir / "combined_Aplot.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: combined_Aplot.png")
+    plt.savefig(qc_dir / "Aplot.png", dpi=150, bbox_inches="tight"); plt.close()
+    log.info("QC: Aplot.png")
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -432,14 +386,8 @@ def _run_qc_one(cfg, species, sample) -> None:
 
     _median_tags_bar_merged(cfg, species, sample, qc_dir)
 
-    _tags_vs_frac(cfg, species, sample, "csRNA",    "csRNA",    "csRNA_tagsPer_Vs_FracofPos.png", qc_dir)
-    _tags_vs_frac(cfg, species, sample, "sRNA",     "sRNA",     "sRNA_tagsPer_Vs_FracofPos.png", qc_dir)
-    _tags_vs_frac(cfg, species, sample, "totalRNA", "totalRNA", "totalRNA_tagsPer_Vs_FracofPos.png", qc_dir)
     _tags_vs_frac_combined(cfg, species, sample, qc_dir)
 
-    _a_plot(cfg, species, sample, "csRNA",    "csRNA",    "csRNA_Aplot.png", qc_dir)
-    _a_plot(cfg, species, sample, "sRNA",     "sRNA",     "sRNA_Aplot.png", qc_dir)
-    _a_plot(cfg, species, sample, "totalRNA", "totalRNA", "totalRNA_Aplot.png", qc_dir)
     _a_plot_combined(cfg, species, sample, qc_dir)
 
     qc_threshold_optimization(cfg, species, sample, qc_dir)
