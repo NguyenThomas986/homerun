@@ -195,6 +195,8 @@ def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
     if not files:
         log.info("QC TSR summary: no *.stats.txt for %s/%s", species, sample); return
 
+    has_rna = cfg.combo_tagdir(species, sample, "totalRNA").is_dir()
+
     rows = []
     for f in files:
         txt = f.read_text()
@@ -205,25 +207,29 @@ def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
             m = re.search(pattern, txt)
             return m.group(1).strip() if m else default
 
-        rows.append({
+        row = {
             "Sample":               s,
             "Total csRNA reads":    _grab(r"Total csRNA reads:\s+([\d.]+)"),
             "Total input reads":    _grab(r"Total input reads:\s+([\d.]+)"),
-            "Total RNA reads":      _grab(r"Total rna reads:\s+([\d.]+)"),
             "Putative TSS":         _grab(r"total putative TSS clusters\s+(\d+)"),
             "Valid TSS":            _grab(r"Valid TSS clusters\s+(\d+)"),
             "% Distal":             _grab(r"Fraction Promoter-Distal.*?:\s+([\d.]+%)"),
-            "% Stable":             _grab(r"Fraction of stable.*?:\s+([\d.]+%)"),
             "% Bidirectional":      _grab(r"Fraction of bidirectional.*?:\s+([\d.]+%)"),
-            "SS":                   _grab(r"SS:\s+\d+\s+\(([\d.]+%)"),
-            "SU":                   _grab(r"SU:\s+\d+\s+\(([\d.]+%)"),
-            "S":                    _grab(r"\tS:\s+\d+\s+\(([\d.]+%)"),
-            "US":                   _grab(r"US:\s+\d+\s+\(([\d.]+%)"),
-            "UU":                   _grab(r"UU:\s+\d+\s+\(([\d.]+%)"),
-            "U":                    _grab(r"\tU:\s+\d+\s+\(([\d.]+%)"),
             "Log2 vs Input":        _grab(r"log2 fold vs\. input:\s+([\d.\-]+)"),
-            "Log2 vs RNA":          _grab(r"log2 fold vs\. rna:\s+([\d.\-]+)"),
-        })
+        }
+        if has_rna:
+            row.update({
+                "Total RNA reads":  _grab(r"Total rna reads:\s+([\d.]+)"),
+                "% Stable":         _grab(r"Fraction of stable.*?:\s+([\d.]+%)"),
+                "SS":               _grab(r"SS:\s+\d+\s+\(([\d.]+%)"),
+                "SU":               _grab(r"SU:\s+\d+\s+\(([\d.]+%)"),
+                "S":                _grab(r"\tS:\s+\d+\s+\(([\d.]+%)"),
+                "US":               _grab(r"US:\s+\d+\s+\(([\d.]+%)"),
+                "UU":               _grab(r"UU:\s+\d+\s+\(([\d.]+%)"),
+                "U":                _grab(r"\tU:\s+\d+\s+\(([\d.]+%)"),
+                "Log2 vs RNA":      _grab(r"log2 fold vs\. rna:\s+([\d.\-]+)"),
+            })
+        rows.append(row)
 
     df = pd.DataFrame(rows).set_index("Sample").T
     df = df[~(df == "NA").all(axis=1)]
