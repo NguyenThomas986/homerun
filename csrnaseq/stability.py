@@ -1,7 +1,9 @@
-"""Step — TSR characterization: stability (needs total RNA) + genomic location.
+"""Step — TSR characterization: stability + genomic location (needs total RNA).
 
-Total RNA is OPTIONAL. Without it the stable/unstable split is skipped automatically;
-the distal/proximal breakdown still runs. Outputs PNGs into QC/.
+Runs per Species/Sample, reading that sample's own TSS/*.tss.txt and writing
+PNGs into that sample's own QC/. Requires total RNA: if a sample has no
+totalRNA-combo TagDir, stability is skipped entirely for that sample (no
+partial/location-only plots either) — run 'tss' first to confirm.
 """
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt   # noqa: E402
 import pandas as pd                     # noqa: E402
 
-from .utils import log                  # noqa: E402
+from .utils import log, iter_samples    # noqa: E402
 
 STABLE_C, UNSTABLE_C = "#2c7fb8", "#de2d26"
 DISTAL_C, PROX_C     = "#756bb1", "#31a354"
@@ -72,36 +74,53 @@ def _location(cfg, df):
     return out, f"column '{col}'"
 
 
-def run_stability(cfg) -> None:
-    tss_files = sorted(cfg.tss.glob("*.tss.txt"))
-    if not tss_files:
-        log.info("stability: no *.tss.txt in %s — run findcsRNATSS first.", cfg.tss)
+def _run_stability_one(cfg, species, sample) -> None:
+    if not cfg.combo_tagdir(species, sample, "totalRNA").is_dir():
+        log.info("stability: no totalRNA-combo for %s/%s — skipping (need total RNA).",
+                 species, sample)
         return
+
+    tss_dir = cfg.sample_tss(species, sample)
+    tss_files = sorted(tss_dir.glob("*.tss.txt"))
+    if not tss_files:
+        return
+
+    qc_dir = cfg.sample_qc(species, sample)
+    qc_dir.mkdir(parents=True, exist_ok=True)
 
     recs = []
     for f in tss_files:
         df = _read_homer_tss(f)
-        sample = f.name.replace(".tss.txt", "")
+        s = f.name.replace(".tss.txt", "")
         stab, how_s = _stability(cfg, df)
         loc,  how_l = _location(cfg, df)
         r = pd.DataFrame(index=df.index)
-        r["sample"]    = sample
+        r["sample"]    = s
         r["stability"] = stab if stab is not None else pd.NA
         r["location"]  = loc  if loc  is not None else pd.NA
         recs.append(r)
-        log.info("%s: stability=%s; location=%s", sample, how_s, how_l)
+        log.info("%s/%s (%s): stability=%s; location=%s", species, sample, s, how_s, how_l)
 
     ALL = pd.concat(recs, ignore_index=True)
     has_stability = ALL["stability"].notna().any()
     has_location  = ALL["location"].notna().any()
-    log.info("%d TSRs | stability=%s | location=%s",
-             len(ALL), has_stability, has_location)
+    log.info("%s/%s: %d TSRs | stability=%s | location=%s",
+             species, sample, len(ALL), has_stability, has_location)
 
-    _plot_stacked_bar(cfg, ALL, has_stability, has_location)
-    _plot_pie(cfg, ALL, has_stability, has_location)
+    _plot_stacked_bar(qc_dir, ALL, has_stability, has_location)
+    _plot_pie(qc_dir, ALL, has_stability, has_location)
 
 
-def _plot_stacked_bar(cfg, ALL, has_stability, has_location):
+def run_stability(cfg) -> None:
+    samples = list(iter_samples(cfg))
+    if not samples:
+        log.info("stability: no Species/Sample dirs found under %s", cfg.project)
+        return
+    for species, sample in samples:
+        _run_stability_one(cfg, species, sample)
+
+
+def _plot_stacked_bar(qc_dir, ALL, has_stability, has_location):
     if has_stability and has_location:
         ct = (ALL.dropna(subset=["stability", "location"])
                  .groupby(["stability", "location"]).size().unstack(fill_value=0)
@@ -112,7 +131,7 @@ def _plot_stacked_bar(cfg, ALL, has_stability, has_location):
         ax.set_ylabel("Number of TSRs"); ax.set_xlabel(""); plt.xticks(rotation=0)
         ax.set_title("Stable vs unstable TSRs, split by genomic location")
         plt.tight_layout()
-        plt.savefig(cfg.qc / "stability_by_location_stacked_bar.png", dpi=150); plt.close()
+        plt.savefig(qc_dir / "stability_by_location_stacked_bar.png", dpi=150); plt.close()
         log.info("plot: stability_by_location_stacked_bar.png")
     elif has_location:
         ct = (ALL.dropna(subset=["location"]).groupby(["sample", "location"]).size()
@@ -122,13 +141,13 @@ def _plot_stacked_bar(cfg, ALL, has_stability, has_location):
         ax.set_ylabel("Number of TSRs"); ax.set_xlabel("")
         ax.set_title("TSRs by genomic location  (no total RNA → stability N/A)")
         plt.xticks(rotation=30, ha="right"); plt.tight_layout()
-        plt.savefig(cfg.qc / "location_stacked_bar.png", dpi=150); plt.close()
+        plt.savefig(qc_dir / "location_stacked_bar.png", dpi=150); plt.close()
         log.info("plot: location_stacked_bar.png")
     else:
         log.info("stacked bar: no location annotation found.")
 
 
-def _plot_pie(cfg, ALL, has_stability, has_location):
+def _plot_pie(qc_dir, ALL, has_stability, has_location):
     if has_stability:
         tot = ALL["stability"].value_counts().reindex(["stable", "unstable"]).fillna(0)
         cols, title = [STABLE_C, UNSTABLE_C], "Stable vs unstable (pooled)"
@@ -143,5 +162,5 @@ def _plot_pie(cfg, ALL, has_stability, has_location):
     plt.pie(tot.values, labels=[f"{i} ({int(v)})" for i, v in tot.items()],
             autopct="%1.1f%%", startangle=90, colors=cols)
     plt.title(title); plt.tight_layout()
-    plt.savefig(cfg.qc / "tsr_pie.png", dpi=150); plt.close()
+    plt.savefig(qc_dir / "tsr_pie.png", dpi=150); plt.close()
     log.info("plot: tsr_pie.png")
