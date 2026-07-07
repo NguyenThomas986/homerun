@@ -1,10 +1,14 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Controller: submits the 3-phase job-array pipeline with dependencies.
+# Controller: submits the 4-phase job-array pipeline with dependencies.
 #
-#   prepare ──afterok──> align_array[0..N-1] ──afterok──> collect
+#   prepare ──afterok──> align_array[0..N-1] ──afterok──> tagdir_array[0..N-1] ──afterok──> collect
 #
-# No config.env. All settings are command-line flags. Launch from anywhere:
+# tagdir_array builds each leaf TagDir in parallel (the slow makeTagDirectory
+# step), indexed the same way as align_array (one R1 file = one leaf run).
+# collect then merges replicates into combo TagDirs and runs
+# bedGraphs/TSS/QC/stability/report.
+#
 #
 #   /path/to/homerun/submit_array.sh \
 #       --project /path/to/proj --partition kamiak --conda-env miniComputer \
@@ -15,7 +19,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-usage() { sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 CONDA_MODULE="anaconda3"
@@ -110,12 +114,17 @@ ARRAY=$(sbatch --parsable ${SOPTS} --dependency=afterok:${PREP} \
         --output="${LOG_DIR}/align-%A_%a.out" --error="${LOG_DIR}/align-%A_%a.err" \
         --array=0-$((N-1))%"${THROTTLE}" \
         align_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-COLLECT=$(sbatch --parsable ${SOPTS} --dependency=afterok:${ARRAY} \
+TAGDIR=$(sbatch --parsable ${SOPTS} --dependency=afterok:${ARRAY} \
+        --output="${LOG_DIR}/tagdir-%A_%a.out" --error="${LOG_DIR}/tagdir-%A_%a.err" \
+        --array=0-$((N-1))%"${THROTTLE}" \
+        tagdir_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
+COLLECT=$(sbatch --parsable ${SOPTS} --dependency=afterok:${TAGDIR} \
           --output="${LOG_DIR}/collect-%j.out" --error="${LOG_DIR}/collect-%j.err" \
           collect.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
 
 echo "Submitted:"
 echo "  prepare     = ${PREP}"
 echo "  align_array = ${ARRAY}   (tasks 0-$((N-1)), <= ${THROTTLE} concurrent)"
+echo "  tagdir_array = ${TAGDIR}  (tasks 0-$((N-1)), <= ${THROTTLE} concurrent)"
 echo "  collect     = ${COLLECT} (runs after all array tasks succeed)"
 echo "Watch with: sq   |   logs in ${LOG_DIR}/"
