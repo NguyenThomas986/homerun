@@ -1,39 +1,51 @@
-"""Step 5 — Find TSRs with findcsRNATSS.pl.
+"""Step 5 — Find TSRs with findcsRNATSS.pl, per Species/Sample.
 
-For each _csRNA-combo, uses the matched _sRNA-combo as input control and, if present,
-the totalRNA combo (_totalRNA-combo or _RNA-combo) as the -rna reference. The -rna
-reference is optional: without total RNA the TSRs are still called, just without
-stable/unstable assignment.
+For each sample's csRNA-combo TagDir, uses the matching sRNA-combo as input
+control and, if present, the totalRNA-combo as the -rna reference. The -rna
+reference is optional: without total RNA the TSRs are still called, just
+without stable/unstable assignment. Output lands in Species/Sample/TSS/,
+one TSS per sample (not per assay).
 """
 from __future__ import annotations
 
-from .utils import run, log, done
+from .utils import run, log, done, iter_samples
 
 
 def run_tss(cfg) -> None:
-    cs = sorted(d for d in cfg.tagdirs.glob("*_csRNA-combo") if d.is_dir())
-    if not cs:
-        log.info("TSS: no *_csRNA-combo dirs in %s", cfg.tagdirs)
-        return
+    found_any = False
 
-    for d in cs:
-        prefix   = d.name.split("_csRNA")[0]
-        sRNA_dir = cfg.tagdirs / f"{prefix}_sRNA-combo"
-        out      = cfg.tss / prefix
+    for species, sample in iter_samples(cfg):
+        cs_dir = cfg.combo_tagdir(species, sample, "csRNA")
+        if not cs_dir.is_dir():
+            continue
+        found_any = True
+
+        sRNA_dir = cfg.combo_tagdir(species, sample, "sRNA")
+        if not sRNA_dir.is_dir():
+            log.warning("TSS: %s/%s has csRNA but no sRNA-combo — skipping (need an input control).",
+                        species, sample)
+            continue
+
+        tss_dir = cfg.sample_tss(species, sample)
+        tss_dir.mkdir(parents=True, exist_ok=True)
+        out = tss_dir / sample
         if done(f"{out}.tss.txt"):
-            log.info("  skip (done): %s.tss.txt", prefix); continue
+            log.info("  skip (done): %s/%s/TSS/%s.tss.txt", species, sample, sample)
+            continue
 
-        rna_dir = None
-        for cand in (f"{prefix}_totalRNA-combo", f"{prefix}_RNA-combo"):
-            p = cfg.tagdirs / cand
-            if p.is_dir():
-                rna_dir = p; break
+        rna_dir = cfg.combo_tagdir(species, sample, "totalRNA")
+        if not rna_dir.is_dir():
+            rna_dir = None
 
-        cmd = (f"findcsRNATSS.pl {d} -o {out} -genome {cfg.genome} "
+        cmd = (f"findcsRNATSS.pl {cs_dir} -o {out} -genome {cfg.genome} "
                f"-ntagThreshold {cfg.ntag_threshold} -i {sRNA_dir}")
         if rna_dir:
             cmd += f" -rna {rna_dir}"
-            log.info("  using total-RNA reference: %s", rna_dir.name)
+            log.info("  using total-RNA reference: %s/%s/totalRNA-combo", species, sample)
         else:
-            log.info("  no total-RNA reference for %s (stability will be unavailable)", prefix)
-        run(cmd, label=f"findcsRNATSS {prefix}", cwd=cfg.tss)
+            log.info("  no total-RNA reference for %s/%s (stability will be unavailable)",
+                     species, sample)
+        run(cmd, label=f"findcsRNATSS {species}/{sample}", cwd=tss_dir)
+
+    if not found_any:
+        log.info("TSS: no csRNA-combo TagDirs under %s", cfg.project)

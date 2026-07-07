@@ -2,15 +2,18 @@
 
 Runs the csRNA-seq steps in strict dependency order:
 
-    trim → align → tagdirs → bedgraphs → tss → qc → stability
+    trim → align → tagdirs → tagdirs-combo → bedgraphs → tss → qc → stability → report
 
 Steps run sequentially and FAIL FAST: if any step raises, the pipeline stops
 immediately with a non-zero exit, so a downstream step never runs on missing
 inputs. Even when a subset is requested with --steps, they execute in this
 canonical order.
 
-For SLURM job arrays, --sample-index restricts trim/align to a single sample
-(the Nth R1 file in RawData); the downstream collect steps run once afterward.
+For SLURM job arrays, --sample-index restricts trim/align/tagdirs to a single
+sample (the Nth R1 file in RawData) — tagdirs builds that one leaf's TagDir,
+letting the (slow) makeTagDirectory step run in parallel across an array the
+same way trim/align do. tagdirs-combo (merging replicates per assay into a
+combo TagDir) and the remaining collect steps run once afterward.
 """
 from __future__ import annotations
 
@@ -21,18 +24,19 @@ from .config import load_config
 from .utils import setup_logging, log, check_tools, list_r1
 from . import prepare, trim, mapping, tagdirs, bedgraphs, tss, qc, stability, report
 
-STEP_ORDER = ["trim", "align", "tagdirs", "bedgraphs", "tss", "qc", "stability", "report"]
-PER_SAMPLE = {"trim", "align"}          # steps that honor --sample-index
+STEP_ORDER = ["trim", "align", "tagdirs", "tagdirs-combo", "bedgraphs", "tss", "qc", "stability", "report"]
+PER_SAMPLE = {"trim", "align", "tagdirs"}  # steps that honor --sample-index
 
 STEP_FUNCS = {
-    "trim":       trim.run_trim,
-    "align":      mapping.run_mapping,
-    "tagdirs":    tagdirs.run_tagdirs,
-    "bedgraphs":  bedgraphs.run_bedgraphs,
-    "tss":        tss.run_tss,
-    "qc":         qc.run_qc,
-    "stability":  stability.run_stability,
-    "report":     report.run_report,
+    "trim":           trim.run_trim,
+    "align":          mapping.run_mapping,
+    "tagdirs":        tagdirs.run_leaf_tagdirs,     # array-capable: one leaf TagDir per call
+    "tagdirs-combo":  tagdirs.run_combo_tagdirs,    # runs once: merges replicates per assay
+    "bedgraphs":      bedgraphs.run_bedgraphs,
+    "tss":            tss.run_tss,
+    "qc":             qc.run_qc,
+    "stability":      stability.run_stability,
+    "report":         report.run_report,
 }
 
 
@@ -48,8 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--steps", nargs="+", choices=STEP_ORDER,
                    help="Run only these steps (still executed in canonical order).")
     p.add_argument("--sample-index", type=int, default=None,
-                   help="0-based index into RawData R1 files; restrict trim/align to that one "
-                        "sample (used by SLURM array tasks via $SLURM_ARRAY_TASK_ID).")
+                   help="0-based index into RawData R1 files; restrict trim/align/tagdirs to "
+                        "that one sample (used by SLURM array tasks via $SLURM_ARRAY_TASK_ID).")
     p.add_argument("--skip-prepare", action="store_true",
                    help="Skip folder creation / raw copy / STARIndex setup.")
     p.add_argument("--only-prepare", action="store_true",

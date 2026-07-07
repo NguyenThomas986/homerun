@@ -1,8 +1,9 @@
 """Step 2 — Mapping (alignment). STAR (default) or HISAT2, per R1 file.
 
 The aligner is chosen by cfg.aligner ("star" | "hisat2"). Both tools write a
-standard, UNCOMPRESSED SAM named "<prefix>.Aligned.out.sam" into Aligned/, so
-the tagdir step and single-command re-runs work the same regardless of aligner.
+standard, UNCOMPRESSED SAM named "<prefix>.Aligned.out.sam" into each
+sample's own Aligned/ (next to its Trimmed/ and RawData/), so the tagdir
+step and single-command re-runs work the same regardless of aligner.
 
 cfg.genome_index must be set explicitly (no genome is assumed):
   - STAR   → used as --genomeDir (a directory)
@@ -10,7 +11,7 @@ cfg.genome_index must be set explicitly (no genome is assumed):
 """
 from __future__ import annotations
 import os
-from .utils import run, log, seq_type, done, list_r1
+from .utils import run, log, seq_type, done, list_r1, leaf_dir
 
 
 def _check_index(cfg) -> None:
@@ -37,43 +38,49 @@ def _star_cmd(cfg, reads_in: str, out_prefix: str) -> str:
             f"--limitOutSAMoneReadBytes 10000000")
 
 
-def _hisat2_cmd(cfg, reads_flag: str, out_sam: str) -> str:
-    # derive sample name from the output sam filename
+def _hisat2_cmd(cfg, reads_flag: str, out_sam: str, aligned_dir) -> str:
+    # derive sample name from the output sam filename; mapping stats land
+    # in this run's own Aligned/ dir (a future commit that nests qc.py per
+    # Species/Sample can pool these there instead, same as it already
+    # pools TSS/stability output).
     sample = os.path.basename(out_sam).replace(".Aligned.out.sam", "")
-    stats = cfg.qc / f"{sample}_mappingstats.txt"
+    stats = aligned_dir / f"{sample}_mappingstats.txt"
     return (f"hisat2 -p {cfg.threads} --rna-strandness F --dta "
             f"-x {cfg.genome_index} "
             f"{reads_flag} -S {out_sam} 2> {stats}")
 
 def map_one(cfg, r1) -> None:
     st = seq_type(r1.name)
+    trimmed_dir = leaf_dir(r1) / "Trimmed"
+    aligned_dir = leaf_dir(r1) / "Aligned"
+    aligned_dir.mkdir(parents=True, exist_ok=True)
     if st in ("csRNA", "sRNA"):                              # single-end
-        trimmed = cfg.trimmed / f"{r1.name}.trimmed"
+        trimmed = trimmed_dir / f"{r1.name}.trimmed"
         if not trimmed.exists():
             log.warning("mapping: trimmed file missing for %s (%s)", r1.name, trimmed.name); return
         prefix = r1.name.split("_R1")[0]
-        sam = cfg.aligned / f"{prefix}.Aligned.out.sam"
+        sam = aligned_dir / f"{prefix}.Aligned.out.sam"
         if done(sam):
             log.info("  skip (done): %s", sam.name); return
         if cfg.aligner == "hisat2":
-            run(_hisat2_cmd(cfg, f"-U {trimmed}", str(sam)), label=f"HISAT2 SE {r1.name}")
+            run(_hisat2_cmd(cfg, f"-U {trimmed}", str(sam), aligned_dir), label=f"HISAT2 SE {r1.name}")
         else:
-            run(_star_cmd(cfg, str(trimmed), str(cfg.aligned / prefix)), label=f"STAR SE {r1.name}")
+            run(_star_cmd(cfg, str(trimmed), str(aligned_dir / prefix)), label=f"STAR SE {r1.name}")
     elif st == "totalRNA":                                   # paired-end
         base = r1.name.split("_R1")[0]
-        p1 = cfg.trimmed / f"{base}-trimmed-pair1.fastq"
-        p2 = cfg.trimmed / f"{base}-trimmed-pair2.fastq"
+        p1 = trimmed_dir / f"{base}-trimmed-pair1.fastq"
+        p2 = trimmed_dir / f"{base}-trimmed-pair2.fastq"
         if not p1.exists():
             log.warning("mapping: trimmed pair missing for %s (%s)", base, p1.name); return
-        sam = cfg.aligned / f"{base}.Aligned.out.sam"
+        sam = aligned_dir / f"{base}.Aligned.out.sam"
         if done(sam):
             log.info("  skip (done): %s", sam.name); return
         if cfg.aligner == "hisat2":
             reads = f"-1 {p1} -2 {p2}" if p2.exists() else f"-U {p1}"
-            run(_hisat2_cmd(cfg, reads, str(sam)), label=f"HISAT2 PE {base}")
+            run(_hisat2_cmd(cfg, reads, str(sam), aligned_dir), label=f"HISAT2 PE {base}")
         else:
             reads = f"{p1} {p2}" if p2.exists() else f"{p1}"
-            run(_star_cmd(cfg, reads, str(cfg.aligned / base)), label=f"STAR PE {base}")
+            run(_star_cmd(cfg, reads, str(aligned_dir / base)), label=f"STAR PE {base}")
     else:
         log.warning("mapping: skipping untyped file %s", r1.name)
 
@@ -83,7 +90,7 @@ def run_mapping(cfg, sample_index=None) -> None:
     log.info("mapping with %s (index: %s)", cfg.aligner.upper(), cfg.genome_index)
     r1s = list_r1(cfg)
     if not r1s:
-        log.info("mapping: no *_R1*.fastq[.gz] in %s", cfg.rawdata); return
+        log.info("mapping: no *_R1*.fastq[.gz] under nested RawData/ dirs in %s", cfg.project); return
     if sample_index is not None:
         if not (0 <= sample_index < len(r1s)):
             raise IndexError(f"sample_index {sample_index} out of range (0-{len(r1s)-1})")

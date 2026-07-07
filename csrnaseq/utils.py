@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -54,6 +55,35 @@ def done(path) -> bool:
     return p.is_dir() or (p.is_file() and p.stat().st_size > 0)
 
 
+def parse_sample_name(filename: str) -> tuple[str, str, str]:
+    """Parse 'homo_sapiens_K562_csRNA_r1...' -> ('homo_sapiens', 'K562', 'csRNA_r1').
+
+    Splits on both '-' and '_' (so '-r2' and '_r2' are equivalent), then
+    truncates at the first replicate marker (r1, r2, rep1...). Everything
+    after the marker (lane/index/sequencer metadata) is discarded. Raises
+    ValueError if no replicate marker is found.
+    """
+    stem = filename.split(".")[0]
+    tokens = re.split(r"[-_]", stem)
+    # Only lowercase 'r1'/'rep2' etc. count as a replicate marker. Illumina
+    # read-tags (R1/R2) are conventionally uppercase and must NOT match here,
+    # or a filename with no real replicate marker before its R1/R2 read tag
+    # would silently misparse (see test_illumina_r1_tag_is_not_a_replicate).
+    rep_idx = next(
+        (i for i, t in enumerate(tokens) if re.fullmatch(r"r(ep)?\d+", t)),
+        None,
+    )
+    if rep_idx is None:
+        raise ValueError(f"parse_sample_name: no replicate marker (r1, rep2...) in '{filename}'")
+    relevant = tokens[: rep_idx + 1]
+    if len(relevant) < 3:
+        raise ValueError(f"parse_sample_name: not enough tokens before replicate marker in '{filename}'")
+    species = f"{relevant[0]}_{relevant[1]}".lower()
+    sample = relevant[2]
+    leaf_name = "_".join(relevant[3:]) or relevant[-1]
+    return species, sample, leaf_name
+
+
 def seq_type(name: str) -> str | None:
     """Classify a filename/sample by library tag. Handles _RNA and _totalRNA."""
     if "_csRNA" in name:
@@ -65,12 +95,76 @@ def seq_type(name: str) -> str | None:
     return None
 
 
+def leaf_dir(r1: Path) -> Path:
+    """Given an R1 fastq Path at .../Species/Sample/<leaf>/RawData/<file>,
+    return the <leaf> directory itself (.../Species/Sample/<leaf>/).
+
+    Used by trim/mapping/tagdirs so each sample's Trimmed/Aligned/TagDir/
+    bedGraph outputs land next to its own RawData/, without re-parsing the
+    filename again — the directory structure already encodes it.
+    """
+    return r1.parent.parent
+
+
 def list_r1(cfg):
-    """Sorted list of R1 FASTQs in RawData — the unit of array parallelism.
-    The array task index maps 1:1 to this (deterministic) ordering."""
-    raw = cfg.rawdata
-    return sorted(p for p in raw.glob("*_R1*")
-                  if p.name.endswith(".fastq") or p.name.endswith(".fastq.gz"))
+    """Sorted list of R1 FASTQs under every nested Species/Sample/<leaf>/RawData/ —
+    the unit of array parallelism. The array task index maps 1:1 to this
+    (deterministic) ordering."""
+    return sorted(
+        p for p in cfg.project.glob("*/*/*/RawData/*_R1*")
+        if p.name.endswith(".fastq") or p.name.endswith(".fastq.gz")
+    )
+
+
+def assay_of_leaf(leaf_name: str) -> str | None:
+    """Classify a leaf directory name like 'csRNA_r1' or 'csRNAseq_r2' into
+    csRNA / sRNA / totalRNA. Unlike seq_type(), this does NOT require a
+    leading underscore before the assay token, since leaf names (produced by
+    parse_sample_name) already have the species/sample prefix stripped off —
+    e.g. 'csRNA_r1' rather than '..._csRNA_r1'.
+    """
+    base = re.sub(r"_r(ep)?\d+$", "", leaf_name)
+    low = base.lower()
+    if low.startswith("csrna"):
+        return "csRNA"
+    if low.startswith("srna"):
+        return "sRNA"
+    if low.startswith("totalrna") or low.startswith("rna"):
+        return "totalRNA"
+    return None
+
+
+def replicate_of_leaf(leaf_name: str) -> str | None:
+    """Extract the replicate marker ('r1', 'r2', ...) from a leaf dir name."""
+    m = re.search(r"_(r(ep)?\d+)$", leaf_name)
+    return m.group(1) if m else None
+
+
+def iter_leaf_dirs(cfg):
+    """Yield (species, sample, leaf_dir) for every nested
+    Species/Sample/<leaf>/ directory under the project that has a RawData/
+    subdir — the same set of runs list_r1() draws its R1 files from, but
+    exposed as directories rather than individual FASTQs (used by steps that
+    key off the leaf dir itself, e.g. tagdirs/bedgraphs)."""
+    for rawdata in sorted(cfg.project.glob("*/*/*/RawData")):
+        if not rawdata.is_dir():
+            continue
+        leaf = rawdata.parent
+        sample = leaf.parent
+        species = sample.parent
+        yield species.name, sample.name, leaf
+
+
+def iter_samples(cfg):
+    """Yield (species, sample) pairs for every nested Species/Sample/ that
+    has at least one leaf run dir — the unit of iteration for sample-level
+    outputs (QC/, TSS/)."""
+    seen = set()
+    for species, sample, _leaf in iter_leaf_dirs(cfg):
+        key = (species, sample)
+        if key not in seen:
+            seen.add(key)
+            yield key
 
 
 def check_tools(required=(), optional=()) -> list:

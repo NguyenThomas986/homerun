@@ -80,30 +80,49 @@ class Config:
     starindex_url: str = ""           # set via CSRNA_STARINDEX_URL in config.env
 
     # ── Derived directories ───────────────────────────────────────────────────
-    @property
-    def rawdata(self) -> Path:   return self.project / "RawData"
-    @property
-    def trimmed(self) -> Path:   return self.project / "Trimmed"
-    @property
-    def aligned(self) -> Path:   return self.project / "Aligned"
-    @property
-    def tagdirs(self) -> Path:   return self.project / "TagDirs"
-    @property
-    def bedgraphs(self) -> Path: return self.project / "bedGraphs"
-    @property
-    def tss(self) -> Path:       return self.project / "TSS"
-    @property
-    def qc(self) -> Path:        return self.project / "QC"
+    # NOTE: RawData/Trimmed/Aligned/TagDir/bedGraph/QC/TSS are all nested under
+    # Species/Sample/ (see below) — there is no flat project-level equivalent.
     @property
     def logs_dir(self) -> Path:  return self.project / "logs"
     @property
-    def reports(self) -> Path:   return self.project / "Reports"
-    @property
     def starindex(self) -> Path: return Path(self.genome_index)
 
-    def output_dirs(self):
-        return [self.rawdata, self.trimmed, self.aligned, self.tagdirs,
-                self.bedgraphs, self.tss, self.qc, self.reports]
+    # ── Species/Sample nested-layout helpers (always used, not opt-in) ────────
+    def sample_dir(self, species: str, sample: str) -> Path:
+        """Species/Sample/ — where per-sample QC and TSS live."""
+        return self.project / species / sample
+
+    def run_dir(self, species: str, sample: str, leaf_name: str) -> Path:
+        """Species/Sample/<assay_rep>/ — where per-run RawData/Trimmed/Aligned/
+        TagDir/bedGraph live."""
+        return self.sample_dir(species, sample) / leaf_name
+
+    # ── Nested TagDir/bedGraph/QC/TSS paths (replace the old flat dirs) ───────
+    def leaf_tagdir(self, species: str, sample: str, leaf_name: str) -> Path:
+        """Species/Sample/<assay_rep>/TagDir — one per individual replicate."""
+        return self.run_dir(species, sample, leaf_name) / "TagDir"
+
+    def leaf_bedgraph(self, species: str, sample: str, leaf_name: str) -> Path:
+        """Species/Sample/<assay_rep>/bedGraph — one per individual replicate."""
+        return self.run_dir(species, sample, leaf_name) / "bedGraph"
+
+    def combo_dir(self, species: str, sample: str, assay: str) -> Path:
+        """Species/Sample/<assay>-combo/ — merged-replicate run for one assay."""
+        return self.sample_dir(species, sample) / f"{assay}-combo"
+
+    def combo_tagdir(self, species: str, sample: str, assay: str) -> Path:
+        return self.combo_dir(species, sample, assay) / "TagDir"
+
+    def combo_bedgraph(self, species: str, sample: str, assay: str) -> Path:
+        return self.combo_dir(species, sample, assay) / "bedGraph"
+
+    def sample_qc(self, species: str, sample: str) -> Path:
+        """Species/Sample/QC — one QC dir per sample, covering all assays."""
+        return self.sample_dir(species, sample) / "QC"
+
+    def sample_tss(self, species: str, sample: str) -> Path:
+        """Species/Sample/TSS — one TSS dir per sample."""
+        return self.sample_dir(species, sample) / "TSS"
 
 
 def load_config(args=None) -> Config:

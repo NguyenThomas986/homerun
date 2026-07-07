@@ -1,29 +1,77 @@
-"""Preparation: create folders, stage loose FASTQs, copy raw FASTQs, ensure STARIndex exists."""
+"""Preparation: create folders, stage loose FASTQs, copy raw FASTQs, ensure STARIndex exists.
+
+FASTQs always land under the nested Species/Sample/<assay_rep>/RawData/ layout
+(see Config.run_dir / utils.parse_sample_name) — there is no flat fallback.
+"""
 from __future__ import annotations
+import glob
 import shutil
-from .utils import run, log
+from pathlib import Path
+from .utils import run, log, parse_sample_name
 
 def setup_dirs(cfg) -> None:
-    for d in cfg.output_dirs():
-        existed = d.is_dir()
-        d.mkdir(parents=True, exist_ok=True)
-        log.info("  %s  %s", "exists " if existed else "CREATED", d)
+    # Only the project-wide logs/ dir is created up front; per-sample
+    # RawData/Trimmed/Aligned/TagDir/bedGraph/QC/TSS dirs are all created on
+    # demand as each sample's files are discovered (their paths depend on
+    # parsing the filename, which we don't know until we see it).
+    d = cfg.logs_dir
+    existed = d.is_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    log.info("  %s  %s", "exists " if existed else "CREATED", d)
+
+def _stage_one(cfg, src: Path) -> None:
+    """Parse src's filename and move/copy it into its nested RawData/ dir."""
+    species, sample, leaf = parse_sample_name(src.name)
+    dst_dir = cfg.run_dir(species, sample, leaf) / "RawData"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / src.name
+    if dst.exists():
+        log.warning("stage: %s already exists at %s — leaving source in place.",
+                    src.name, dst_dir)
+        return dst
+    shutil.move(str(src), str(dst)) if src.exists() else None
+    log.info("stage: moved %s -> %s/", src.name, dst_dir)
+    return dst
 
 def copy_raw(cfg) -> None:
-    if cfg.copy_src:
-        run(f"cp -r {cfg.copy_src} {cfg.rawdata}/", label="copy raw FASTQs")
-    else:
+    """Copy FASTQs matched by cfg.copy_src directly into their nested RawData/ dirs.
+
+    Each matched file is parsed individually (species/sample/leaf), unlike a
+    flat `cp -r glob dest/`, since the destination now depends on the
+    filename itself.
+    """
+    if not cfg.copy_src:
         log.info("copy_src empty — skipping raw copy.")
+        return
+    matches = sorted(Path(p) for p in glob.glob(cfg.copy_src) if Path(p).is_file())
+    if not matches:
+        log.warning("copy_src '%s' matched no files.", cfg.copy_src)
+        return
+    for src in matches:
+        try:
+            species, sample, leaf = parse_sample_name(src.name)
+        except ValueError as exc:
+            log.warning("copy_raw: skipping %s (%s)", src.name, exc)
+            continue
+        dst_dir = cfg.run_dir(species, sample, leaf) / "RawData"
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        dst = dst_dir / src.name
+        if dst.exists():
+            log.warning("copy_raw: %s already exists at %s — skipping.", src.name, dst_dir)
+            continue
+        run(f"cp {src} {dst}", label=f"copy raw {src.name}")
 
 def stage_loose_fastqs(cfg) -> None:
-    """Move loose *_R1*/*_R2* FASTQs sitting in the project ROOT into RawData/.
+    """Move loose *_R1*/*_R2* FASTQs sitting in the project ROOT into their
+    nested Species/Sample/<assay_rep>/RawData/ dir.
 
     Non-recursive (only the project root is scanned, never subdirs), so files
-    already in RawData/ are untouched. If a same-named file already exists in
-    RawData/, the loose copy is LEFT IN PLACE (never clobbered) and a warning is
-    logged. Safe to call repeatedly — a no-op once everything is staged.
+    already staged are untouched. If a same-named file already exists at the
+    destination, the loose copy is LEFT IN PLACE (never clobbered) and a
+    warning is logged. Filenames that don't parse (no replicate marker) are
+    skipped with a warning rather than crashing the whole prepare step.
+    Safe to call repeatedly — a no-op once everything is staged.
     """
-    cfg.rawdata.mkdir(parents=True, exist_ok=True)
     loose = sorted(
         p for p in cfg.project.glob("*")
         if p.is_file()
@@ -34,13 +82,10 @@ def stage_loose_fastqs(cfg) -> None:
         log.info("stage: no loose FASTQs in project root — nothing to move.")
         return
     for src in loose:
-        dst = cfg.rawdata / src.name
-        if dst.exists():
-            log.warning("stage: %s already exists in RawData/ — leaving loose file in place.",
-                        src.name)
-            continue
-        shutil.move(str(src), str(dst))
-        log.info("stage: moved %s -> RawData/", src.name)
+        try:
+            _stage_one(cfg, src)
+        except ValueError as exc:
+            log.warning("stage: skipping %s (%s)", src.name, exc)
 
 def ensure_starindex(cfg) -> None:
     if cfg.aligner != "star":
