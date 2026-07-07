@@ -22,7 +22,7 @@ for t in homerTools python; do
 done
 
 echo "[$(date)] collect on $(hostname)"
-python -m csrnaseq --steps tagdirs bedgraphs tss qc stability report \
+python -m csrnaseq --steps tagdirs-combo bedgraphs tss qc stability report \
        --log-path "${LOG}" "$@"
 
 echo "[$(date)] cleaning up intermediate files"
