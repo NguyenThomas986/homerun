@@ -167,6 +167,17 @@ def iter_samples(cfg):
             yield key
 
 
+def read_homer_table(path):
+    """Read any HOMER TSV output (peak files, mergePeaks output, annotatePeaks.pl
+    output, tag directory stat files...) into a DataFrame. HOMER prefixes the
+    first column's header with '#' (e.g. '#PeakID'); this strips it so the
+    column can be referenced by its plain name. Import pandas lazily so utils.py
+    has no hard pandas dependency for callers that don't need it."""
+    import pandas as pd
+    df = pd.read_csv(path, sep="\t")
+    return df.rename(columns={df.columns[0]: df.columns[0].lstrip("#").strip()})
+
+
 def check_tools(required=(), optional=()) -> list:
     """Log tool availability; return list of missing required tools."""
     log.info("Tool availability:")
