@@ -22,8 +22,8 @@ for t in homerTools python; do
 done
 
 echo "[$(date)] collect on $(hostname)"
-python -m csrnaseq --steps tagdirs-combo bedgraphs tss qc stability report \
-       --log-path "${LOG}" "$@"
+python -m csrnaseq --steps tagdirs-combo bedgraphs tss ritrie qc stability report \
+       --log-path "${LOG}" "$@"s
 
 echo "[$(date)] cleaning up intermediate files"
 find "${PROJECT}" -mindepth 4 -maxdepth 4 -type d \( -name Trimmed -o -name Aligned \) -exec rm -rf {} +
