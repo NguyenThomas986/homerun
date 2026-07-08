@@ -4,10 +4,6 @@
 #
 #   prepare ──afterok──> align_array[0..N-1] ──afterok──> tagdir_array[0..N-1] ──afterok──> collect
 #
-# tagdir_array builds each leaf TagDir in parallel (the slow makeTagDirectory
-# step), indexed the same way as align_array (one R1 file = one leaf run).
-# collect then merges replicates into combo TagDirs and runs
-# bedGraphs/TSS/QC/stability/report.
 #
 #
 #   /path/to/homerun/submit_array.sh \
