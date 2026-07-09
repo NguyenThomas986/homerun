@@ -131,11 +131,11 @@ class Config:
         return self.sample_dir(species, sample) / "TSS"
 
     # ── RIT/RIE (Reads in TSR / Reads in Exon) QC metric ──────────────────────
-    @property
-    def ritrie_gtf_exons(self) -> Path:
-        """Project-wide parsed-GTF-exons file, built once and shared across
-        every sample (it doesn't depend on species/sample, only on --gtf)."""
-        return self.project / "RITRIE" / "parsed_gtf_exons.tsv"
+    def species_ritrie_gtf_exons(self, species: str) -> Path:
+        """Species/RITRIE/parsed_gtf_exons.tsv — parsed once per species (built
+        from that species' --gtf) and shared across every sample of that
+        species, rather than mixed across species at the flat project root."""
+        return self.project / species / "RITRIE" / "parsed_gtf_exons.tsv"
 
     def leaf_ritrie(self, species: str, sample: str, leaf_name: str) -> Path:
         """Species/Sample/<assay_rep>/RITRIE — working dir for one csRNA
