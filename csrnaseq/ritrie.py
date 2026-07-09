@@ -17,7 +17,10 @@ without total RNA.
 Per-replicate intermediates and the one-row result land in each replicate's
 own Species/Sample/<assay_rep>/RITRIE/. Per-sample results are aggregated
 into Species/Sample/QC/ritrie_summary.tsv (+ ritrie.png), so they show up in
-that sample's qc_report.html automatically.
+that sample's qc_report.html automatically. The parsed-GTF-exons file is
+built once per species (from that species' --gtf) and cached at
+Species/RITRIE/parsed_gtf_exons.tsv — never at the flat project root, so
+multiple species' RIT/RIE runs never mix.
 """
 from __future__ import annotations
 
@@ -33,21 +36,21 @@ _PEAK_COLS = ["TSS_ID", "chr", "start", "end", "strand"]
 
 # ── HOMER command wrappers ────────────────────────────────────────────────────
 
-def _ensure_gtf_exons(cfg) -> bool:
-    """Build the project-wide parsed-GTF-exons file once (cached across every
-    sample). Returns False (logging why) if it can't be built."""
-    if not cfg.gtf:
-        log.info("ritrie: CSRNA_GTF / --gtf not set — skipping ritrie for the whole project.")
-        return False
-    out = cfg.ritrie_gtf_exons
+def _ensure_gtf_exons(cfg, species: str):
+    """Build the per-species parsed-GTF-exons file once (cached across every
+    sample of that species). Returns the path, or None (logging why) if it
+    can't be built."""
+    out = cfg.species_ritrie_gtf_exons(species)
     if done(out):
-        return True
+        return out
     out.parent.mkdir(parents=True, exist_ok=True)
-    job = run(f"parseGTF.pl {cfg.gtf} exons > {out}", label="ritrie: parseGTF exons", check=False)
+    job = run(f"parseGTF.pl {cfg.gtf} exons > {out}",
+              label=f"ritrie: parseGTF exons ({species})", check=False)
     if job.returncode != 0 or not done(out):
-        log.warning("ritrie: parseGTF.pl failed or produced no output — skipping ritrie.")
-        return False
-    return True
+        log.warning("ritrie: parseGTF.pl failed or produced no output for %s — skipping ritrie for this species.",
+                    species)
+        return None
+    return out
 
 
 def _build_itss(cfg, tagdir, out_dir, label: str):
@@ -110,7 +113,7 @@ def _write_peak_subset(itss_df, ids: set[str], out_path) -> int:
 
 # ── Per-replicate RIT/RIE ─────────────────────────────────────────────────────
 
-def _ritrie_for_leaf(cfg, species, sample, leaf_dir, tsr_file) -> dict | None:
+def _ritrie_for_leaf(cfg, species, sample, leaf_dir, tsr_file, gtf_exons) -> dict | None:
     leaf_name = leaf_dir.name
     label = f"{species}/{sample}/{leaf_name}"
     tagdir = cfg.leaf_tagdir(species, sample, leaf_name)
@@ -141,7 +144,7 @@ def _ritrie_for_leaf(cfg, species, sample, leaf_dir, tsr_file) -> dict | None:
 
     # Step 2: find which iTSS peaks overlap an exon, then exclude anything
     # that's already counted on the TSR side, so the two sets are disjoint.
-    exon_ids = _overlapping_ids(cfg, cfg.ritrie_gtf_exons, itss_file, ritrie_dir / "itss_in_exon.merged.tsv",
+    exon_ids = _overlapping_ids(cfg, gtf_exons, itss_file, ritrie_dir / "itss_in_exon.merged.tsv",
                                 f"{label} vs exons")
     if exon_ids is None:
         return None
@@ -199,7 +202,7 @@ def _plot_ritrie(cfg, species, sample, df, qc_dir) -> None:
     log.info("ritrie: ritrie.png (%s/%s)", species, sample)
 
 
-def _run_ritrie_sample(cfg, species, sample) -> None:
+def _run_ritrie_sample(cfg, species, sample, gtf_exons) -> None:
     tsr_file = cfg.sample_tss(species, sample) / f"{sample}.tss.txt"
     if not tsr_file.exists():
         log.info("ritrie: no %s.tss.txt for %s/%s yet — run 'tss' first.", sample, species, sample)
@@ -213,7 +216,7 @@ def _run_ritrie_sample(cfg, species, sample) -> None:
 
     rows = []
     for leaf_dir in leaf_runs:
-        row = _ritrie_for_leaf(cfg, species, sample, leaf_dir, tsr_file)
+        row = _ritrie_for_leaf(cfg, species, sample, leaf_dir, tsr_file, gtf_exons)
         if row is not None:
             rows.append(row)
 
@@ -234,11 +237,19 @@ def _run_ritrie_sample(cfg, species, sample) -> None:
 
 
 def run_ritrie(cfg) -> None:
-    if not _ensure_gtf_exons(cfg):
+    if not cfg.gtf:
+        log.info("ritrie: CSRNA_GTF / --gtf not set — skipping ritrie for the whole project.")
         return
     samples = list(iter_samples(cfg))
     if not samples:
         log.info("ritrie: no Species/Sample dirs found under %s", cfg.project)
         return
+
+    gtf_exons_by_species: dict[str, object] = {}
     for species, sample in samples:
-        _run_ritrie_sample(cfg, species, sample)
+        if species not in gtf_exons_by_species:
+            gtf_exons_by_species[species] = _ensure_gtf_exons(cfg, species)
+        gtf_exons = gtf_exons_by_species[species]
+        if gtf_exons is None:
+            continue
+        _run_ritrie_sample(cfg, species, sample, gtf_exons)
