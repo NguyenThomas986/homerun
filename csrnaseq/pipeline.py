@@ -22,12 +22,15 @@ import sys
 
 from .config import load_config
 from .utils import setup_logging, log, check_tools, list_r1
-from . import prepare, trim, mapping, tagdirs, bedgraphs, tss, ritrie, qc, stability, report
+from . import __version__, prepare, trim, mapping, tagdirs, bedgraphs, tss, ritrie, qc, stability, report
 
-_BANNER = r""".  .           .__       
-|__| _ ._ _  _ [__). .._ 
-|  |(_)[ | )(/,|  \(_|[ )
-                         """
+_BANNER = r"""
+    __  __                                    
+   / / / /___  ____ ___  ___  _______  ______ 
+  / /_/ / __ \/ __ `__ \/ _ \/ ___/ / / / __ \
+ / __  / /_/ / / / / / /  __/ /  / /_/ / / / /
+/_/ /_/\____/_/ /_/ /_/\___/_/   \__,_/_/ /_/ 
+"""
 
 STEP_ORDER = ["trim", "align", "tagdirs", "tagdirs-combo", "bedgraphs", "tss", "ritrie", "qc", "stability", "report"]
 PER_SAMPLE = {"trim", "align", "tagdirs"}  # steps that honor --sample-index
@@ -49,7 +52,12 @@ STEP_FUNCS = {
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="csrnaseq",
-        description="csRNA-seq pipeline (trim → STAR → tagdirs → bedGraphs → TSS → QC → stability)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            _BANNER
+            + "\nRNA-seq analysis pipeline for HPC clusters."
+            + f"\nVersion: {__version__}"
+        ),
     )
     p.add_argument("--project", help="Project root (default: $CSRNA_PROJECT or CWD).")
     p.add_argument("--log-path", default=None,
@@ -132,6 +140,11 @@ def run_pipeline(cfg, steps=None, skip_prepare=False, sample_index=None) -> None
             STEP_FUNCS[step](cfg)      # raises on failure → fail-fast, order preserved
     log.info("Pipeline complete.")
 
+def print_banner():
+    print(_BANNER)
+    print(f"RNA-seq analysis pipeline for HPC clusters.")
+    print(f"Version: {__version__}")
+
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
@@ -142,7 +155,8 @@ def main(argv=None) -> int:
         print(len(list_r1(cfg)))
         return 0
 
-    print(_BANNER)
+    print_banner()
+    
     setup_logging(cfg)
     log.info("Project: %s | genome=%s | threads=%d", cfg.project, cfg.genome, cfg.threads)
 
