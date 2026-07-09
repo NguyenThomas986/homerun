@@ -24,6 +24,11 @@ from .config import load_config
 from .utils import setup_logging, log, check_tools, list_r1
 from . import prepare, trim, mapping, tagdirs, bedgraphs, tss, ritrie, qc, stability, report
 
+_BANNER = r""".  .           .__       
+|__| _ ._ _  _ [__). .._ 
+|  |(_)[ | )(/,|  \(_|[ )
+                         """
+
 STEP_ORDER = ["trim", "align", "tagdirs", "tagdirs-combo", "bedgraphs", "tss", "ritrie", "qc", "stability", "report"]
 PER_SAMPLE = {"trim", "align", "tagdirs"}  # steps that honor --sample-index
 
@@ -137,6 +142,7 @@ def main(argv=None) -> int:
         print(len(list_r1(cfg)))
         return 0
 
+    print(_BANNER)
     setup_logging(cfg)
     log.info("Project: %s | genome=%s | threads=%d", cfg.project, cfg.genome, cfg.threads)
 
