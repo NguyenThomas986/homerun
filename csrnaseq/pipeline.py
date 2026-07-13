@@ -2,7 +2,7 @@
 
 Runs the csRNA-seq steps in strict dependency order:
 
-    trim → align → tagdirs → tagdirs-combo → bedgraphs → tss → qc → stability → report
+    trim → align → tagdirs → tagdirs-combo → bedgraphs → tss → ritrie → qc → stability → report
 
 Steps run sequentially and FAIL FAST: if any step raises, the pipeline stops
 immediately with a non-zero exit, so a downstream step never runs on missing
@@ -22,9 +22,17 @@ import sys
 
 from .config import load_config
 from .utils import setup_logging, log, check_tools, list_r1
-from . import prepare, trim, mapping, tagdirs, bedgraphs, tss, qc, stability, report
+from . import __version__, prepare, trim, mapping, tagdirs, bedgraphs, tss, ritrie, qc, stability, report
 
-STEP_ORDER = ["trim", "align", "tagdirs", "tagdirs-combo", "bedgraphs", "tss", "qc", "stability", "report"]
+_BANNER = r"""
+    __  __                                    
+   / / / /___  ____ ___  ___  _______  ______ 
+  / /_/ / __ \/ __ `__ \/ _ \/ ___/ / / / __ \
+ / __  / /_/ / / / / / /  __/ /  / /_/ / / / /
+/_/ /_/\____/_/ /_/ /_/\___/_/   \__,_/_/ /_/ 
+"""
+
+STEP_ORDER = ["trim", "align", "tagdirs", "tagdirs-combo", "bedgraphs", "tss", "ritrie", "qc", "stability", "report"]
 PER_SAMPLE = {"trim", "align", "tagdirs"}  # steps that honor --sample-index
 
 STEP_FUNCS = {
@@ -34,6 +42,7 @@ STEP_FUNCS = {
     "tagdirs-combo":  tagdirs.run_combo_tagdirs,    # runs once: merges replicates per assay
     "bedgraphs":      bedgraphs.run_bedgraphs,
     "tss":            tss.run_tss,
+    "ritrie":         ritrie.run_ritrie,            # RIT/RIE QC metric; skipped if --gtf isn't set
     "qc":             qc.run_qc,
     "stability":      stability.run_stability,
     "report":         report.run_report,
@@ -43,7 +52,12 @@ STEP_FUNCS = {
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="csrnaseq",
-        description="csRNA-seq pipeline (trim → STAR → tagdirs → bedGraphs → TSS → QC → stability)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            _BANNER
+            + "\nRNA-seq analysis pipeline for HPC clusters."
+            + f"\nVersion: {__version__}"
+        ),
     )
     p.add_argument("--project", help="Project root (default: $CSRNA_PROJECT or CWD).")
     p.add_argument("--log-path", default=None,
@@ -71,6 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="STAR --genomeDir dir or HISAT2 -x prefix (overrides CSRNA_GENOME_INDEX).")
     g.add_argument("--genome", default=None,
                    help="HOMER -genome for tagdirs/TSS (overrides CSRNA_GENOME).")
+    g.add_argument("--gtf", default=None,
+                   help="GTF annotation file, only needed for the ritrie step "
+                        "(overrides CSRNA_GTF; ritrie is skipped if unset).")
     g.add_argument("--copy-src", default=None,
                    help="Glob of FASTQs to copy into RawData/ (overrides CSRNA_COPY_SRC).")
     g.add_argument("--threads", type=int, default=None,
@@ -108,7 +125,7 @@ def run_pipeline(cfg, steps=None, skip_prepare=False, sample_index=None) -> None
 
     missing = check_tools(
         required=["homerTools", "STAR", "makeTagDirectory", "makeUCSCfile", "findcsRNATSS.pl"],
-        optional=["skewer"],
+        optional=["skewer", "findPeaks", "mergePeaks", "annotatePeaks.pl", "parseGTF.pl"],
     )
     if missing:
         log.warning("Missing required tools: %s (steps using them will fail).", ", ".join(missing))
@@ -123,6 +140,11 @@ def run_pipeline(cfg, steps=None, skip_prepare=False, sample_index=None) -> None
             STEP_FUNCS[step](cfg)      # raises on failure → fail-fast, order preserved
     log.info("Pipeline complete.")
 
+def print_banner():
+    print(_BANNER)
+    print(f"RNA-seq analysis pipeline for HPC clusters.")
+    print(f"Version: {__version__}")
+
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
@@ -133,6 +155,8 @@ def main(argv=None) -> int:
         print(len(list_r1(cfg)))
         return 0
 
+    print_banner()
+    
     setup_logging(cfg)
     log.info("Project: %s | genome=%s | threads=%d", cfg.project, cfg.genome, cfg.threads)
 

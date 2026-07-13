@@ -60,7 +60,7 @@ _IMG_ORDER = [
     "tss_nucleotide_frequency",
     "tagsPer_Vs_FracofPos",
     "autocorrelation", "threshold_optimization",
-    "tsr_summary", "tsr_annotation",
+    "tsr_summary", "tsr_annotation", "ritrie",
     "stability_by_location_stacked_bar", "location_stacked_bar", "tsr_pie",
 ]
 
@@ -81,8 +81,10 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     ),
     "median_tags_per_position": (
         "tagCountDistribution.txt (combo TagDirs)",
-        "Median reads per genomic position for each library — checks for "
-        "PCR (Polymerase Chain Reaction) duplication.",
+        "Median reads stacked at the same genomic position, per library. "
+        "Should be close to 1 — higher values mean many reads are just "
+        "PCR copies of the same original molecule rather than independent "
+        "biological signal.",
     ),
     "Aplot": (
         "tagFreqUniq.txt (csRNA + sRNA combo TagDirs)",
@@ -103,7 +105,7 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     ),
     "threshold_optimization": (
         "*.inputDistribution.txt (TSS/)",
-        "The best mathematical cutoff for calling TSSs, based on the read-depth distribution of the sample(s).",
+        "How the csRNA-vs-input cutoff score was chosen.",
     ),
     "tsr_summary": (
         "*.stats.txt (TSS/)",
@@ -123,7 +125,14 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     ),
     "tsr_pie": (
         "*.tss.txt (TSS/)",
-        "Pooled stable/unstable (or distal/proximal) split across the sample.",
+        "Pooled stable/unstable split across the sample.",
+    ),
+    "ritrie": (
+        "RITRIE/ritrie.tsv (per csRNA replicate)",
+        "RIT/RIE per csRNA replicate — reads at called TSRs vs. reads at "
+        "exons (excluding TSR overlap), estimating RNA degradation without "
+        "a RIN score. Lower values suggest more degraded RNA relative to "
+        "intact transcription-start signal.",
     ),
 }
 

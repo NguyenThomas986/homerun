@@ -10,6 +10,11 @@ REQUIRED, no defaults (the pipeline refuses to guess a genome):
                          - HISAT2 → the -x index PREFIX (e.g. /path/idx/genome)
   CSRNA_GENOME         HOMER -genome for tag dirs / TSS (genome name like 'hg38'
                        if installed in HOMER, or a path to a genome FASTA)
+
+OPTIONAL — enables extra features when set:
+  CSRNA_GTF            path to a GTF annotation file. Only needed for the
+                       'ritrie' step (RIT/RIE QC metric); without it, ritrie
+                       is skipped with a log message rather than failing.
 """
 from __future__ import annotations
 
@@ -43,6 +48,7 @@ class Config:
     aligner: str = "star"             # "star" or "hisat2"
     genome_index: str = ""            # STAR --genomeDir OR hisat2 -x prefix (REQUIRED)
     genome: str = ""                  # HOMER -genome for tagdirs/tss (REQUIRED)
+    gtf: str = ""                     # GTF annotation, only needed for the ritrie step (OPTIONAL)
 
     threads: int = 20
 
@@ -124,6 +130,18 @@ class Config:
         """Species/Sample/TSS — one TSS dir per sample."""
         return self.sample_dir(species, sample) / "TSS"
 
+    # ── RIT/RIE (Reads in TSR / Reads in Exon) QC metric ──────────────────────
+    def species_ritrie_gtf_exons(self, species: str) -> Path:
+        """Species/RITRIE/parsed_gtf_exons.tsv — parsed once per species (built
+        from that species' --gtf) and shared across every sample of that
+        species, rather than mixed across species at the flat project root."""
+        return self.project / species / "RITRIE" / "parsed_gtf_exons.tsv"
+
+    def leaf_ritrie(self, species: str, sample: str, leaf_name: str) -> Path:
+        """Species/Sample/<assay_rep>/RITRIE — working dir for one csRNA
+        replicate's RIT/RIE intermediates (iTSS peaks, merges, annotations)."""
+        return self.run_dir(species, sample, leaf_name) / "RITRIE"
+
 
 def load_config(args=None) -> Config:
     # --project flag (if given) overrides CSRNA_PROJECT; else env; else CWD.
@@ -138,6 +156,7 @@ def load_config(args=None) -> Config:
         aligner=_pick(args, "aligner", "CSRNA_ALIGNER", "star").lower(),
         genome_index=_pick(args, "genome_index", "CSRNA_GENOME_INDEX", ""),
         genome=_pick(args, "genome", "CSRNA_GENOME", ""),
+        gtf=_pick(args, "gtf", "CSRNA_GTF", ""),
         copy_src=_pick(args, "copy_src", "CSRNA_COPY_SRC", ""),
         # ── Alignment (flag > env > default; csRNA-tuned defaults) ───────────
         star_filter_multimap=_pick(args, "star_filter_multimap",

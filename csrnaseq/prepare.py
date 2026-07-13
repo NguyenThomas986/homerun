@@ -107,8 +107,27 @@ def ensure_starindex(cfg) -> None:
     run(f"rm -f {tarball}", label="cleanup tarball")
     log.info("STARIndex extracted to %s", si)
 
+def validate_gtf(cfg) -> None:
+    """If --gtf/CSRNA_GTF is set, confirm it actually points at a real,
+    readable file NOW (in the 'prepare' job — the first phase), rather than
+    discovering a typo'd/missing path 3 jobs later when 'ritrie' (the very
+    last collect step) finally tries to read it. If --gtf is unset, ritrie is
+    simply skipped later — that's fine, not an error — so this only raises
+    when a value WAS given but doesn't check out."""
+    if not cfg.gtf:
+        return
+    p = Path(cfg.gtf)
+    if not p.is_file():
+        raise ValueError(
+            f"--gtf/CSRNA_GTF is set to '{cfg.gtf}' but that file does not exist "
+            f"(or isn't visible from this node). Double-check the exact path and "
+            f"extension — e.g. with: ls -la {cfg.gtf}"
+        )
+    log.info("GTF found: %s", p)
+
 def prepare(cfg) -> None:
     log.info("=== PREPARE: folders / stage loose / raw copy / STARIndex ===")
+    validate_gtf(cfg)
     setup_dirs(cfg)
     stage_loose_fastqs(cfg)
     copy_raw(cfg)
