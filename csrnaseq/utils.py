@@ -169,13 +169,37 @@ def iter_samples(cfg):
 
 def read_homer_table(path):
     """Read any HOMER TSV output (peak files, mergePeaks output, annotatePeaks.pl
-    output, tag directory stat files...) into a DataFrame. HOMER prefixes the
-    first column's header with '#' (e.g. '#PeakID'); this strips it so the
-    column can be referenced by its plain name. Import pandas lazily so utils.py
-    has no hard pandas dependency for callers that don't need it."""
+    output, tag directory stat files...) into a DataFrame.
+
+    Some HOMER tools (e.g. findcsRNATSS.pl's .tss.txt, mergePeaks,
+    annotatePeaks.pl) write just ONE '#'-prefixed header line. Others (e.g.
+    findPeaks) write a whole metadata preamble first — parameters, genome,
+    tag directory, thresholds — as several more '#' lines, with the real
+    tab-separated column header further down. Reading naively with
+    pd.read_csv(sep='\t') treats whichever line comes first as the header;
+    for a multi-line preamble that's metadata text, not real columns, so it
+    correctly detects 1 field there and then fails ('Expected 1 fields...')
+    the moment it hits a real data row with many tab-separated fields.
+
+    This scans every leading '#'-prefixed line and treats the LAST one as
+    the actual column header (stripping its '#'), skipping everything above
+    it — correct for both single-header-line files (where that's just the
+    first and only line) and multi-line-preamble files alike.
+    """
     import pandas as pd
-    df = pd.read_csv(path, sep="\t")
-    return df.rename(columns={df.columns[0]: df.columns[0].lstrip("#").strip()})
+    header_line, header_idx = None, -1
+    with open(path) as fh:
+        for i, line in enumerate(fh):
+            if line.startswith("#"):
+                header_line, header_idx = line, i
+            else:
+                break
+    if header_line is None:
+        # No '#'-prefixed line at all — fall back to plain read (unexpected,
+        # but don't crash on a file that happens to have no HOMER header).
+        return pd.read_csv(path, sep="\t")
+    columns = header_line.lstrip("#").rstrip("\n").split("\t")
+    return pd.read_csv(path, sep="\t", skiprows=header_idx + 1, names=columns)
 
 
 def check_tools(required=(), optional=()) -> list:
