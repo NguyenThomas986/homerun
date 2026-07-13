@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=csrna_collect
-#SBATCH --time=4:00:00
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=32G
+#SBATCH --time=1:00:00
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=16G
 set -euo pipefail
 
 # Args from submit_array.sh: <conda_module> <conda_env> <project> [python flags...]
@@ -22,7 +22,7 @@ for t in homerTools python; do
 done
 
 echo "[$(date)] collect on $(hostname)"
-python -m csrnaseq --steps tagdirs-combo bedgraphs tss ritrie qc stability report \
+python -m csrnaseq --steps qc stability report \
        --log-path "${LOG}" "$@"
 
 echo "[$(date)] cleaning up intermediate files"
