@@ -2,7 +2,7 @@
 
 Runs the csRNA-seq steps in strict dependency order:
 
-    trim → align → tagdirs → tagdirs-combo → bedgraphs → tss → ritrie → qc → stability → report
+    trim → align → tagdirs → tagdirs-combo → bedgraphs → tss → qc → stability → report
 
 Steps run sequentially and FAIL FAST: if any step raises, the pipeline stops
 immediately with a non-zero exit, so a downstream step never runs on missing
@@ -10,10 +10,17 @@ inputs. Even when a subset is requested with --steps, they execute in this
 canonical order.
 
 For SLURM job arrays, --sample-index restricts trim/align/tagdirs to a single
-sample (the Nth R1 file in RawData) — tagdirs builds that one leaf's TagDir,
-letting the (slow) makeTagDirectory step run in parallel across an array the
-same way trim/align do. tagdirs-combo (merging replicates per assay into a
-combo TagDir) and the remaining collect steps run once afterward.
+leaf run (the Nth R1 file in RawData) — tagdirs builds that one leaf's
+TagDir, letting the (slow) makeTagDirectory step run in parallel across an
+array the same way trim/align do.
+
+tagdirs-combo, bedgraphs, and tss are each keyed by Species/Sample rather
+than by individual leaf/R1 file, so they honor a separate --group-index
+instead: the Nth entry of utils.list_samples(cfg) (a sorted, deduplicated
+list of every Species/Sample pair). This lets each of those three steps also
+run as its own parallel SLURM array, one task per Species/Sample, rather
+than looping over every sample serially inside one job. qc, stability, and
+report remain whole-project, run-once steps.
 """
 from __future__ import annotations
 
@@ -21,19 +28,12 @@ import argparse
 import sys
 
 from .config import load_config
-from .utils import setup_logging, log, check_tools, list_r1
-from . import __version__, prepare, trim, mapping, tagdirs, bedgraphs, tss, ritrie, qc, stability, report
+from .utils import setup_logging, log, check_tools, list_r1, list_samples
+from . import prepare, trim, mapping, tagdirs, bedgraphs, tss, qc, stability, report
 
-_BANNER = r"""
-    __  __                                    
-   / / / /___  ____ ___  ___  _______  ______ 
-  / /_/ / __ \/ __ `__ \/ _ \/ ___/ / / / __ \
- / __  / /_/ / / / / / /  __/ /  / /_/ / / / /
-/_/ /_/\____/_/ /_/ /_/\___/_/   \__,_/_/ /_/ 
-"""
-
-STEP_ORDER = ["trim", "align", "tagdirs", "tagdirs-combo", "bedgraphs", "tss", "ritrie", "qc", "stability", "report"]
-PER_SAMPLE = {"trim", "align", "tagdirs"}  # steps that honor --sample-index
+STEP_ORDER = ["trim", "align", "tagdirs", "tagdirs-combo", "bedgraphs", "tss", "qc", "stability", "report"]
+PER_SAMPLE = {"trim", "align", "tagdirs"}              # steps that honor --sample-index (one R1 file each)
+GROUP_STEPS = {"tagdirs-combo", "bedgraphs", "tss"}    # steps that honor --group-index (one Species/Sample each)
 
 STEP_FUNCS = {
     "trim":           trim.run_trim,
@@ -42,7 +42,6 @@ STEP_FUNCS = {
     "tagdirs-combo":  tagdirs.run_combo_tagdirs,    # runs once: merges replicates per assay
     "bedgraphs":      bedgraphs.run_bedgraphs,
     "tss":            tss.run_tss,
-    "ritrie":         ritrie.run_ritrie,            # RIT/RIE QC metric; skipped if --gtf isn't set
     "qc":             qc.run_qc,
     "stability":      stability.run_stability,
     "report":         report.run_report,
@@ -52,12 +51,7 @@ STEP_FUNCS = {
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="csrnaseq",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description=(
-            _BANNER
-            + "\nRNA-seq analysis pipeline for HPC clusters."
-            + f"\nVersion: {__version__}"
-        ),
+        description="csRNA-seq pipeline (trim → STAR → tagdirs → bedGraphs → TSS → QC → stability)",
     )
     p.add_argument("--project", help="Project root (default: $CSRNA_PROJECT or CWD).")
     p.add_argument("--log-path", default=None,
@@ -67,13 +61,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Run only these steps (still executed in canonical order).")
     p.add_argument("--sample-index", type=int, default=None,
                    help="0-based index into RawData R1 files; restrict trim/align/tagdirs to "
-                        "that one sample (used by SLURM array tasks via $SLURM_ARRAY_TASK_ID).")
+                        "that one leaf run (used by SLURM array tasks via $SLURM_ARRAY_TASK_ID).")
+    p.add_argument("--group-index", type=int, default=None,
+                   help="0-based index into utils.list_samples(cfg) (sorted Species/Sample "
+                        "pairs); restrict tagdirs-combo/bedgraphs/tss to that one Species/Sample "
+                        "(used by SLURM array tasks via $SLURM_ARRAY_TASK_ID).")
     p.add_argument("--skip-prepare", action="store_true",
                    help="Skip folder creation / raw copy / STARIndex setup.")
     p.add_argument("--only-prepare", action="store_true",
                    help="Run prepare (folders/copy/STARIndex) and exit.")
     p.add_argument("--count-samples", action="store_true",
-                   help="Print the number of samples (R1 files in RawData) and exit.")
+                   help="Print the number of leaf runs (R1 files in RawData) and exit.")
+    p.add_argument("--count-groups", action="store_true",
+                   help="Print the number of Species/Sample groups and exit.")
     p.add_argument("--stage-raw", action="store_true",
                    help="Move loose *_R1*/*_R2* FASTQs from the project root into RawData/ and exit.")
 
@@ -85,9 +85,6 @@ def build_parser() -> argparse.ArgumentParser:
                    help="STAR --genomeDir dir or HISAT2 -x prefix (overrides CSRNA_GENOME_INDEX).")
     g.add_argument("--genome", default=None,
                    help="HOMER -genome for tagdirs/TSS (overrides CSRNA_GENOME).")
-    g.add_argument("--gtf", default=None,
-                   help="GTF annotation file, only needed for the ritrie step "
-                        "(overrides CSRNA_GTF; ritrie is skipped if unset).")
     g.add_argument("--copy-src", default=None,
                    help="Glob of FASTQs to copy into RawData/ (overrides CSRNA_COPY_SRC).")
     g.add_argument("--threads", type=int, default=None,
@@ -119,16 +116,24 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def run_pipeline(cfg, steps=None, skip_prepare=False, sample_index=None) -> None:
+def run_pipeline(cfg, steps=None, skip_prepare=False, sample_index=None, group_index=None) -> None:
     if not skip_prepare:
         prepare.prepare(cfg)
 
     missing = check_tools(
         required=["homerTools", "STAR", "makeTagDirectory", "makeUCSCfile", "findcsRNATSS.pl"],
-        optional=["skewer", "findPeaks", "mergePeaks", "annotatePeaks.pl", "parseGTF.pl"],
+        optional=["skewer"],
     )
     if missing:
         log.warning("Missing required tools: %s (steps using them will fail).", ", ".join(missing))
+
+    group = None
+    if group_index is not None:
+        groups = list_samples(cfg)
+        if not (0 <= group_index < len(groups)):
+            raise IndexError(f"group_index {group_index} out of range (0-{len(groups)-1})")
+        group = groups[group_index]
+        log.info("Group %d/%d: %s/%s", group_index, len(groups) - 1, *group)
 
     selected = [s for s in STEP_ORDER if (not steps or s in steps)]
     log.info("Running steps in order: %s", ", ".join(selected))
@@ -136,27 +141,25 @@ def run_pipeline(cfg, steps=None, skip_prepare=False, sample_index=None) -> None
         log.info("=== STEP: %s ===", step)
         if step in PER_SAMPLE:
             STEP_FUNCS[step](cfg, sample_index=sample_index)
+        elif step in GROUP_STEPS:
+            STEP_FUNCS[step](cfg, group=group)
         else:
             STEP_FUNCS[step](cfg)      # raises on failure → fail-fast, order preserved
     log.info("Pipeline complete.")
-
-def print_banner():
-    print(_BANNER)
-    print(f"RNA-seq analysis pipeline for HPC clusters.")
-    print(f"Version: {__version__}")
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     cfg = load_config(args)
 
-    # --count-samples: clean stdout (no logging) for the array controller
+    # --count-samples / --count-groups: clean stdout (no logging) for the array controller
     if args.count_samples:
         print(len(list_r1(cfg)))
         return 0
+    if args.count_groups:
+        print(len(list_samples(cfg)))
+        return 0
 
-    print_banner()
-    
     setup_logging(cfg)
     log.info("Project: %s | genome=%s | threads=%d", cfg.project, cfg.genome, cfg.threads)
 
@@ -168,6 +171,8 @@ def main(argv=None) -> int:
 
     if args.sample_index is not None:
         log.info("Sample index: %d", args.sample_index)
+    if args.group_index is not None:
+        log.info("Group index: %d", args.group_index)
 
     try:
         if args.only_prepare:
@@ -175,7 +180,7 @@ def main(argv=None) -> int:
             log.info("Prepare complete.")
             return 0
         run_pipeline(cfg, steps=args.steps, skip_prepare=args.skip_prepare,
-                     sample_index=args.sample_index)
+                     sample_index=args.sample_index, group_index=args.group_index)
     except Exception as exc:                 # fail-fast: surface and exit non-zero
         log.error("Pipeline aborted: %s", exc)
         return 1
