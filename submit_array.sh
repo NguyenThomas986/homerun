@@ -1,10 +1,28 @@
 #!/bin/bash
 # ─────────────────────────────────────────────────────────────────────────────
-# Controller: submits the 4-phase job-array pipeline with dependencies.
+# Controller: submits the 7-phase job-array pipeline with dependencies.
 #
-#   prepare ──afterok──> align_array[0..N-1] ──afterok──> tagdir_array[0..N-1] ──afterok──> collect
+#   prepare
+#     └─afterok─> align_array[0..N-1]
+#                   ├─afterok─> tagdir_array[0..N-1]          (leaf TagDirs)
+#                   └─afterok─> tagdirs_combo_array[0..S-1]   (combo TagDirs)
+#                                 ├─afterok─> tss_array[0..S-1]
+#                                 └─(+ tagdir_array)─afterok─> bedgraphs_array[0..S-1]
+#                                                                 └─afterok─(+tss_array)─> collect
 #
+# N = number of leaf runs (R1 files in RawData) — align_array/tagdir_array
+# indexing, one task per leaf run.
+# S = number of Species/Sample groups — tagdirs_combo_array/bedgraphs_array/
+# tss_array indexing, one task per Species/Sample (a different, usually
+# smaller count than N, since a sample has several leaf runs).
 #
+# tagdir_array builds each leaf TagDir in parallel (the slow makeTagDirectory
+# step). tagdirs_combo_array merges replicates per assay into a combo TagDir,
+# in parallel per Species/Sample — it only needs align_array, not
+# tagdir_array, so it runs alongside tagdir_array rather than after it.
+# tss_array needs the combo TagDirs; bedgraphs_array needs BOTH the leaf and
+# combo TagDirs (it builds bedGraphs for every TagDir under a sample). collect
+# then just runs QC/stability/report over everything the array phases built.
 #
 #   /path/to/homerun/submit_array.sh \
 #       --project /path/to/proj --partition kamiak --conda-env miniComputer \
@@ -15,7 +33,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 CONDA_MODULE="anaconda3"
@@ -99,6 +117,10 @@ fi
 [ "${N}" -ge 1 ] || { echo "ERROR: no *_R1* FASTQs in ${PROJECT}/RawData"; exit 1; }
 echo "Found ${N} sample file(s) → array 0-$((N-1))"
 
+S=$(python -m csrnaseq "${PY_ARGS[@]}" --count-groups)
+[ "${S}" -ge 1 ] || { echo "ERROR: no Species/Sample groups found under ${PROJECT}"; exit 1; }
+echo "Found ${S} Species/Sample group(s) → array 0-$((S-1))"
+
 # ── SLURM options ─────────────────────────────────────────────────────────────
 SOPTS="--partition=${PARTITION} --mail-type=ALL"
 [ -n "${EMAIL}" ] && SOPTS="${SOPTS} --mail-user=${EMAIL}"
@@ -114,13 +136,28 @@ TAGDIR=$(sbatch --parsable ${SOPTS} --dependency=afterok:${ARRAY} \
         --output="${LOG_DIR}/tagdir-%A_%a.out" --error="${LOG_DIR}/tagdir-%A_%a.err" \
         --array=0-$((N-1))%"${THROTTLE}" \
         tagdir_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-COLLECT=$(sbatch --parsable ${SOPTS} --dependency=afterok:${TAGDIR} \
+TAGDIR_COMBO=$(sbatch --parsable ${SOPTS} --dependency=afterok:${ARRAY} \
+        --output="${LOG_DIR}/tagdircombo-%A_%a.out" --error="${LOG_DIR}/tagdircombo-%A_%a.err" \
+        --array=0-$((S-1))%"${THROTTLE}" \
+        tagdirs_combo_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
+TSS=$(sbatch --parsable ${SOPTS} --dependency=afterok:${TAGDIR_COMBO} \
+        --output="${LOG_DIR}/tss-%A_%a.out" --error="${LOG_DIR}/tss-%A_%a.err" \
+        --array=0-$((S-1))%"${THROTTLE}" \
+        tss_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
+BEDGRAPH=$(sbatch --parsable ${SOPTS} --dependency=afterok:${TAGDIR}:${TAGDIR_COMBO} \
+        --output="${LOG_DIR}/bedgraphs-%A_%a.out" --error="${LOG_DIR}/bedgraphs-%A_%a.err" \
+        --array=0-$((S-1))%"${THROTTLE}" \
+        bedgraphs_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
+COLLECT=$(sbatch --parsable ${SOPTS} --dependency=afterok:${TSS}:${BEDGRAPH} \
           --output="${LOG_DIR}/collect-%j.out" --error="${LOG_DIR}/collect-%j.err" \
           collect.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
 
 echo "Submitted:"
-echo "  prepare     = ${PREP}"
-echo "  align_array = ${ARRAY}   (tasks 0-$((N-1)), <= ${THROTTLE} concurrent)"
-echo "  tagdir_array = ${TAGDIR}  (tasks 0-$((N-1)), <= ${THROTTLE} concurrent)"
-echo "  collect     = ${COLLECT} (runs after all array tasks succeed)"
+echo "  prepare             = ${PREP}"
+echo "  align_array         = ${ARRAY}         (tasks 0-$((N-1)), <= ${THROTTLE} concurrent)"
+echo "  tagdir_array        = ${TAGDIR}        (tasks 0-$((N-1)), <= ${THROTTLE} concurrent)"
+echo "  tagdirs_combo_array = ${TAGDIR_COMBO}  (tasks 0-$((S-1)), <= ${THROTTLE} concurrent)"
+echo "  tss_array           = ${TSS}           (tasks 0-$((S-1)), <= ${THROTTLE} concurrent)"
+echo "  bedgraphs_array     = ${BEDGRAPH}      (tasks 0-$((S-1)), <= ${THROTTLE} concurrent)"
+echo "  collect             = ${COLLECT} (runs after tss_array and bedgraphs_array succeed)"
 echo "Watch with: sq   |   logs in ${LOG_DIR}/"
