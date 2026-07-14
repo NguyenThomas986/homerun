@@ -5,9 +5,13 @@ run in parallel across a SLURM array:
                                               per call, same --sample-index
                                               indexing as trim/align (one
                                               task per R1 file).
-  run_combo_tagdirs(cfg)                   — runs once (in collect), merges
-                                              every replicate's raw SAM files
-                                              per assay into a combo TagDir.
+  run_combo_tagdirs(cfg, group=...)        — ARRAY-CAPABLE via --group-index,
+                                              one Species/Sample per call
+                                              (group=(species, sample)), or
+                                              all of them at once when
+                                              group=None. Merges every
+                                              replicate's raw SAM files per
+                                              assay into a combo TagDir.
 
 Both build under Species/Sample/ instead of a flat project-level TagDirs/:
   • Species/Sample/<assay>-combo/TagDir   — all replicates of that assay merged
@@ -80,16 +84,19 @@ def run_leaf_tagdirs(cfg, sample_index=None) -> None:
         _leaf_tagdir_for_r1(cfg, r1)
 
 
-def run_combo_tagdirs(cfg) -> None:
+def run_combo_tagdirs(cfg, group=None) -> None:
     """Merge every replicate's raw SAM files per assay into one combo TagDir
-    per Species/Sample. Runs once (not array-capable) — typically in collect,
-    after every leaf run's align phase has finished. Independent of whether
-    run_leaf_tagdirs has run: combo TagDirs are built straight from the SAM
-    files, not from the leaf TagDirs."""
+    per Species/Sample. Array-capable via --group-index (group=(species,
+    sample) restricts to just that one Species/Sample), or runs once for
+    every Species/Sample when group=None. Only needs the align phase to be
+    done, not run_leaf_tagdirs — combo TagDirs are built straight from the
+    SAM files, not from the leaf TagDirs."""
     combo_groups: dict[tuple[str, str, str], list] = defaultdict(list)
     any_found = False
 
     for species, sample, ld in iter_leaf_dirs(cfg):
+        if group is not None and (species, sample) != group:
+            continue
         sams = sorted((ld / "Aligned").glob("*.Aligned.out.sam"))
         if not sams:
             continue

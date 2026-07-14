@@ -19,8 +19,16 @@ def _assay_for(run_dir_name: str) -> str | None:
     return assay_of_leaf(run_dir_name)
 
 
-def run_bedgraphs(cfg) -> None:
+def run_bedgraphs(cfg, group=None) -> None:
+    """Array-capable via --group-index (group=(species, sample) restricts to
+    just that one Species/Sample's TagDirs — both its leaf and combo TagDirs,
+    since this needs whichever of each already exist), or all Species/Sample
+    at once when group=None."""
     tagdirs = sorted(cfg.project.glob("*/*/*/TagDir"))
+    if group is not None:
+        sp, sa = group
+        tagdirs = [td for td in tagdirs
+                   if td.parent.parent.name == sa and td.parent.parent.parent.name == sp]
     if not tagdirs:
         log.info("bedGraph: no nested TagDir/ dirs under %s", cfg.project)
         return

@@ -11,10 +11,15 @@ from __future__ import annotations
 from .utils import run, log, done, iter_samples
 
 
-def run_tss(cfg) -> None:
+def run_tss(cfg, group=None) -> None:
+    """Array-capable via --group-index (group=(species, sample) restricts to
+    just that one Species/Sample), or runs for every Species/Sample at once
+    when group=None."""
     found_any = False
 
     for species, sample in iter_samples(cfg):
+        if group is not None and (species, sample) != group:
+            continue
         cs_dir = cfg.combo_tagdir(species, sample, "csRNA")
         if not cs_dir.is_dir():
             continue
