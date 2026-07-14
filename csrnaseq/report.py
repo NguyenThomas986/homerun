@@ -129,9 +129,11 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     ),
     "ritrie": (
         "RITRIE/ritrie.tsv (per csRNA replicate)",
-        "Higher RIT/RIE values generally indicate stronger enrichment of transcription initiation signal relative to exonic RNA, while lower values may indicate increased RNA degradation. Thresholds have not yet  
-        been formally established.",
-    ),
+        "Higher RIT/RIE values generally indicate stronger enrichment of "
+        "transcription initiation signal relative to exonic RNA, while lower "
+        "values may indicate increased RNA degradation. Thresholds have not "
+        "yet been formally established.",
+),
 }
 
 

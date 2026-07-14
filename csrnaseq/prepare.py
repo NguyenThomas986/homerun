@@ -4,10 +4,12 @@ FASTQs always land under the nested Species/Sample/<assay_rep>/RawData/ layout
 (see Config.run_dir / utils.parse_sample_name) — there is no flat fallback.
 """
 from __future__ import annotations
+import dataclasses
 import glob
 import shutil
+from datetime import datetime
 from pathlib import Path
-from .utils import run, log, parse_sample_name
+from .utils import run, log, parse_sample_name, list_samples
 
 def setup_dirs(cfg) -> None:
     # Only the project-wide logs/ dir is created up front; per-sample
@@ -125,6 +127,46 @@ def validate_gtf(cfg) -> None:
         )
     log.info("GTF found: %s", p)
 
+def write_config_summary(cfg) -> None:
+    """Write <project>/config.txt: every Config field (whatever was passed in,
+    or its default if not) plus every sample discovered so far. Meant to make
+    a project directory self-documenting — what genome/aligner/thresholds/gtf
+    it was run with, and which samples it saw — without digging through
+    config.env, CLI history, or logs. Safe to call repeatedly (overwrites);
+    called at the end of every prepare() so it stays current as new samples
+    get staged across separate submit_array.sh runs."""
+    lines = [
+        "# HomeRun csRNA-seq pipeline — run configuration",
+        f"# Generated: {datetime.now().isoformat(timespec='seconds')}",
+        "",
+        "[Config]",
+    ]
+    for f in dataclasses.fields(cfg):
+        lines.append(f"{f.name} = {getattr(cfg, f.name)}")
+ 
+    lines += ["", "[Samples]"]
+    samples = list_samples(cfg)
+    if not samples:
+        lines.append("(none discovered yet)")
+    else:
+        lines.append(f"count = {len(samples)}")
+        for species, sample in samples:
+            lines.append(f"{species}/{sample}")
+ 
+    lines += ["", "[RawData]"]
+    raw_files = sorted(p for p in cfg.project.glob("*/*/*/RawData/*") if p.is_file())
+    if not raw_files:
+        lines.append("(none staged yet)")
+    else:
+        lines.append(f"count = {len(raw_files)}")
+        for p in raw_files:
+            lines.append(str(p.relative_to(cfg.project)))
+ 
+    out = cfg.project / "config.txt"
+    out.write_text("\n".join(lines) + "\n")
+    log.info("Wrote run configuration (%d sample(s), %d raw file(s)) to %s",
+              len(samples), len(raw_files), out)
+
 def prepare(cfg) -> None:
     log.info("=== PREPARE: folders / stage loose / raw copy / STARIndex ===")
     validate_gtf(cfg)
@@ -135,3 +177,4 @@ def prepare(cfg) -> None:
         ensure_starindex(cfg)
     else:
         log.info("Aligner is %s — skipping STARIndex.", cfg.aligner)
+    write_config_summary(cfg)
