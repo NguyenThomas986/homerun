@@ -129,10 +129,8 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     ),
     "ritrie": (
         "RITRIE/ritrie.tsv (per csRNA replicate)",
-        "RIT/RIE per csRNA replicate — reads at called TSRs vs. reads at "
-        "exons (excluding TSR overlap), estimating RNA degradation without "
-        "a RIN score. Lower values suggest more degraded RNA relative to "
-        "intact transcription-start signal.",
+        "Higher RIT/RIE values generally indicate stronger enrichment of transcription initiation signal relative to exonic RNA, while lower values may indicate increased RNA degradation. Thresholds have not yet  
+        been formally established.",
     ),
 }
 
