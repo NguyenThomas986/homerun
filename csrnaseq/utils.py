@@ -88,13 +88,45 @@ def done(path) -> bool:
     return p.is_dir() or (p.is_file() and p.stat().st_size > 0)
 
 
+def _find_assay(tokens: list[str]) -> tuple[int | None, str | None]:
+    """Search a list of tokens for an assay-type token, returning
+    (index, assay_name) for the first match, or (None, None) if none found.
+
+    Shared by parse_sample_name() and assay_of_leaf() so both agree on what
+    counts as an assay token — checked by *position-independent* search
+    (any token, not just the first/last), since a condition like 'p53KO'
+    may sit before the assay token in a real filename (e.g.
+    'p53KO_csRNA_r1'). Specific forms (csRNA/sRNA/totalRNA) are checked
+    before the generic 'RNA' fallback so e.g. a 'totalRNA' token isn't
+    mistaken for anything else.
+    """
+    for i, t in enumerate(tokens):
+        low = t.lower()
+        if low.startswith("csrna"):
+            return i, "csRNA"
+        if low.startswith("srna"):
+            return i, "sRNA"
+        if low.startswith("totalrna"):
+            return i, "totalRNA"
+    for i, t in enumerate(tokens):
+        if t.lower().startswith("rna"):
+            return i, "totalRNA"
+    return None, None
+
+
 def parse_sample_name(filename: str) -> tuple[str, str, str]:
     """Parse 'homo_sapiens_K562_csRNA_r1...' -> ('homo_sapiens', 'K562', 'csRNA_r1').
+    Also handles a condition token before the assay, e.g.
+    'homo_sapiens_K562_p53KO_csRNA_r1...' -> ('homo_sapiens', 'K562', 'p53KO_csRNA_r1').
 
     Splits on both '-' and '_' (so '-r2' and '_r2' are equivalent), then
     truncates at the first replicate marker (r1, r2, rep1...). Everything
     after the marker (lane/index/sequencer metadata) is discarded. Raises
-    ValueError if no replicate marker is found.
+    ValueError if no replicate marker is found, or if no assay-type token
+    (csRNA/sRNA/totalRNA/RNA) is found between the sample and the replicate
+    marker — the assay token's *position* isn't assumed (a condition like
+    'p53KO' may come before it), only that one exists somewhere in there,
+    via the same search _find_assay() uses for assay_of_leaf().
     """
     stem = filename.split(".")[0]
     tokens = re.split(r"[-_]", stem)
@@ -114,6 +146,11 @@ def parse_sample_name(filename: str) -> tuple[str, str, str]:
     species = f"{relevant[0]}_{relevant[1]}".lower()
     sample = relevant[2]
     leaf_name = "_".join(relevant[3:]) or relevant[-1]
+    _, assay = _find_assay(relevant[3:])
+    if assay is None:
+        raise ValueError(
+            f"parse_sample_name: no assay type (csRNA/sRNA/totalRNA) found in '{filename}'"
+        )
     return species, sample, leaf_name
 
 
@@ -150,21 +187,21 @@ def list_r1(cfg):
 
 
 def assay_of_leaf(leaf_name: str) -> str | None:
-    """Classify a leaf directory name like 'csRNA_r1' or 'csRNAseq_r2' into
-    csRNA / sRNA / totalRNA. Unlike seq_type(), this does NOT require a
-    leading underscore before the assay token, since leaf names (produced by
-    parse_sample_name) already have the species/sample prefix stripped off —
-    e.g. 'csRNA_r1' rather than '..._csRNA_r1'.
+    """Classify a leaf directory name like 'csRNA_r1', 'csRNAseq_r2', or
+    'p53KO_csRNA_r1' into csRNA / sRNA / totalRNA. Unlike seq_type(), this
+    does NOT require a leading underscore before the assay token, since leaf
+    names (produced by parse_sample_name) already have the species/sample
+    prefix stripped off — e.g. 'csRNA_r1' rather than '..._csRNA_r1'.
+
+    The assay token is searched for anywhere in the (underscore-split) leaf
+    name via _find_assay(), not assumed to be the first token — a condition
+    like 'p53KO' may legitimately sit in front of it (e.g. 'p53KO_csRNA_r1'),
+    and a startswith()-on-the-whole-string check would silently miss those
+    and return None, causing real samples to be skipped as unclassifiable.
     """
     base = re.sub(r"_r(ep)?\d+$", "", leaf_name)
-    low = base.lower()
-    if low.startswith("csrna"):
-        return "csRNA"
-    if low.startswith("srna"):
-        return "sRNA"
-    if low.startswith("totalrna") or low.startswith("rna"):
-        return "totalRNA"
-    return None
+    _, assay = _find_assay(base.split("_"))
+    return assay
 
 
 def replicate_of_leaf(leaf_name: str) -> str | None:
