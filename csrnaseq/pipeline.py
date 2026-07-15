@@ -525,7 +525,19 @@ def main(argv=None) -> int:
 
     if args.stage_raw:
 
+        # Regenerate config.txt here too, not just from the full prepare().
+        # --stage-raw is the narrow, fast path (move loose FASTQs and exit)
+        # that submit_array.sh's local pre-flight step uses before counting
+        # samples/groups and submitting the SLURM array — it deliberately
+        # skips copy_raw()/ensure_starindex()/validate_gtf(), but skipping
+        # write_config_summary() too meant config.txt silently went stale
+        # (still showing whatever the last full `prepare()` run wrote) even
+        # though the array jobs themselves read the filesystem directly via
+        # list_r1()/list_samples() and always saw the newly staged samples
+        # correctly. Cheap to call, so just always keep config.txt honest.
         prepare.stage_loose_fastqs(cfg)
+
+        prepare.write_config_summary(cfg)
 
         return 0
 
