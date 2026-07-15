@@ -25,6 +25,7 @@ echo "[$(date)] collect on $(hostname)"
 python -m csrnaseq --steps ritrie qc stability report \
        --log-path "${LOG}" "$@"
 
-echo "[$(date)] cleaning up intermediate files"
-find "${PROJECT}" -mindepth 4 -maxdepth 4 -type d \( -name Trimmed -o -name Aligned \) -exec rm -rf {} +
+# for now dont delete
+# echo "[$(date)] cleaning up intermediate files"
+# find "${PROJECT}" -mindepth 4 -maxdepth 4 -type d \( -name Trimmed -o -name Aligned \) -exec rm -rf {} +
 echo "[$(date)] collect done"
