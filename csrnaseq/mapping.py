@@ -11,10 +11,21 @@ cfg.genome_index must be set explicitly (no genome is assumed):
 """
 from __future__ import annotations
 import os
+from pathlib import Path
 from .utils import run, log, seq_type, done, list_r1, leaf_dir
 
 
 def _check_index(cfg) -> None:
+    """Fail fast, with a clear message, on a missing OR wrong-shaped index —
+    rather than letting STAR/HISAT2 die deep inside a SLURM array task and
+    leave nothing behind but a log. In particular this catches the easy
+    mistake of pointing --genome-index at a STAR --genomeDir while running
+    with aligner=hisat2 (or vice versa): the two tools' index formats are
+    NOT interchangeable (STAR wants a directory; HISAT2 wants a file-prefix
+    with matching *.ht2 files next to it), and HISAT2 in particular fails
+    near-instantly on a directory path with no SAM/alignment output at all,
+    which looks identical to "alignment silently did nothing".
+    """
     if cfg.aligner not in ("star", "hisat2"):
         raise ValueError(f"aligner must be 'star' or 'hisat2', got '{cfg.aligner}'")
     if not cfg.genome_index:
@@ -23,6 +34,46 @@ def _check_index(cfg) -> None:
             + ("STAR --genomeDir directory" if cfg.aligner == "star"
                else "HISAT2 -x index prefix") + " (no genome is assumed)."
         )
+
+    idx = Path(cfg.genome_index)
+
+    if cfg.aligner == "star":
+        # STAR --genomeDir must be an existing directory; SAindex is the
+        # standard marker file every `STAR --runMode genomeGenerate` writes.
+        if not idx.is_dir():
+            raise ValueError(
+                f"aligner is 'star' but genome_index '{cfg.genome_index}' is not a "
+                f"directory. STAR needs a pre-built --genomeDir (from `STAR "
+                f"--runMode genomeGenerate`), not a raw genome FASTA and not a "
+                f"HISAT2 index prefix."
+            )
+        if not (idx / "SAindex").exists():
+            raise ValueError(
+                f"aligner is 'star' but '{cfg.genome_index}' doesn't look like a "
+                f"STAR genomeDir (no SAindex file inside it). Point "
+                f"--genome-index/CSRNA_GENOME_INDEX at a directory built with "
+                f"`STAR --runMode genomeGenerate`."
+            )
+    else:  # hisat2
+        # HISAT2 -x is a PREFIX, not a directory: the real index files are
+        # <prefix>.1.ht2 ... <prefix>.8.ht2 (or .ht2l for large genomes).
+        if idx.is_dir():
+            raise ValueError(
+                f"aligner is 'hisat2' but genome_index '{cfg.genome_index}' is a "
+                f"directory. HISAT2 needs an index PREFIX (e.g. "
+                f"/path/to/index/genome), built with `hisat2-build <genome.fa> "
+                f"<prefix>`, pointing at files like <prefix>.1.ht2 — not a STAR "
+                f"--genomeDir."
+            )
+        ht2_files = list(idx.parent.glob(f"{idx.name}.*.ht2")) + \
+                    list(idx.parent.glob(f"{idx.name}.*.ht2l"))
+        if not ht2_files:
+            raise ValueError(
+                f"aligner is 'hisat2' but no '{idx.name}.*.ht2[l]' files were found "
+                f"next to '{cfg.genome_index}'. Build one with `hisat2-build "
+                f"<genome.fa> {cfg.genome_index}`, then point "
+                f"--genome-index/CSRNA_GENOME_INDEX at that same prefix."
+            )
 
 
 def _star_cmd(cfg, reads_in: str, out_prefix: str) -> str:
