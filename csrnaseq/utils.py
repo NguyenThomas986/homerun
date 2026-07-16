@@ -118,15 +118,20 @@ def parse_sample_name(filename: str) -> tuple[str, str, str]:
     """Parse 'homo_sapiens_K562_csRNA_r1...' -> ('homo_sapiens', 'K562', 'csRNA_r1').
     Also handles a condition token before the assay, e.g.
     'homo_sapiens_K562_p53KO_csRNA_r1...' -> ('homo_sapiens', 'K562', 'p53KO_csRNA_r1').
+    And handles filenames with NO distinct sample token at all, e.g.
+    'Apis_mellifera_csRNA_r1...' -> ('apis_mellifera', 'apis_mellifera', 'csRNA_r1')
+    — the species name is reused as the sample so same-species replicates
+    across assays still combine under one Species/Sample/ folder.
 
     Splits on both '-' and '_' (so '-r2' and '_r2' are equivalent), then
     truncates at the first replicate marker (r1, r2, rep1...). Everything
     after the marker (lane/index/sequencer metadata) is discarded. Raises
     ValueError if no replicate marker is found, or if no assay-type token
-    (csRNA/sRNA/totalRNA/RNA) is found between the sample and the replicate
+    (csRNA/sRNA/totalRNA/RNA) is found between species and the replicate
     marker — the assay token's *position* isn't assumed (a condition like
-    'p53KO' may come before it), only that one exists somewhere in there,
-    via the same search _find_assay() uses for assay_of_leaf().
+    'p53KO' may come before it, or nothing may come before it), only that
+    one exists somewhere in there, via the same search _find_assay() uses
+    for assay_of_leaf().
     """
     stem = filename.split(".")[0]
     tokens = re.split(r"[-_]", stem)
@@ -144,13 +149,34 @@ def parse_sample_name(filename: str) -> tuple[str, str, str]:
     if len(relevant) < 3:
         raise ValueError(f"parse_sample_name: not enough tokens before replicate marker in '{filename}'")
     species = f"{relevant[0]}_{relevant[1]}".lower()
-    sample = relevant[2]
-    leaf_name = "_".join(relevant[3:]) or relevant[-1]
-    _, assay = _find_assay(relevant[3:])
+
+    # Everything after species, up to and including the replicate marker:
+    # normally sample, [condition...], assay, rep — but some naming schemes
+    # (e.g. Apis mellifera: 'Apis_mellifera_csRNA-r1_...') have NO distinct
+    # sample/cell-line token at all, so the assay sits immediately after
+    # species. Detect that by searching for the assay token's *position*
+    # rather than assuming tokens[2] is always the sample.
+    after_species = relevant[2:]
+    assay_idx, assay = _find_assay(after_species)
     if assay is None:
         raise ValueError(
             f"parse_sample_name: no assay type (csRNA/sRNA/totalRNA) found in '{filename}'"
         )
+
+    if assay_idx == 0:
+        # Assay is the very first token after species -> no sample token
+        # exists in this filename. Fall back to reusing the species name as
+        # the sample, so e.g. csRNA_r1/csRNA_r2/sRNA_r1/sRNA_r2 for the same
+        # species all land under one shared Species/Sample/ folder and can
+        # still be combined into combo TagDirs / TSS-called together —
+        # instead of each replicate getting its own spurious "sample" (like
+        # a sample literally named 'csRNA').
+        sample = species
+        leaf_name = "_".join(after_species)
+    else:
+        sample = relevant[2]
+        leaf_name = "_".join(relevant[3:]) or relevant[-1]
+
     return species, sample, leaf_name
 
 
