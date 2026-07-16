@@ -132,19 +132,19 @@ ARRAY=$(sbatch --parsable ${SOPTS} --dependency=afterok:${PREP} \
         --output="${LOG_DIR}/align-%A_%a.out" --error="${LOG_DIR}/align-%A_%a.err" \
         --array=0-$((N-1))%"${THROTTLE}" \
         align_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-TAGDIR=$(sbatch --parsable ${SOPTS} --dependency=afterok:${ARRAY} \
+TAGDIR=$(sbatch --parsable ${SOPTS} --dependency=aftercorr:${ARRAY} \
         --output="${LOG_DIR}/tagdir-%A_%a.out" --error="${LOG_DIR}/tagdir-%A_%a.err" \
         --array=0-$((N-1))%"${THROTTLE}" \
         tagdir_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-TAGDIR_COMBO=$(sbatch --parsable ${SOPTS} --dependency=afterok:${ARRAY} \
+TAGDIR_COMBO=$(sbatch --parsable ${SOPTS} --dependency=afterany:${ARRAY} \
         --output="${LOG_DIR}/tagdircombo-%A_%a.out" --error="${LOG_DIR}/tagdircombo-%A_%a.err" \
         --array=0-$((S-1))%"${THROTTLE}" \
         tagdirs_combo_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-TSS=$(sbatch --parsable ${SOPTS} --dependency=afterok:${TAGDIR_COMBO} \
+TSS=$(sbatch --parsable ${SOPTS} --dependency=afterany:${TAGDIR_COMBO} \
         --output="${LOG_DIR}/tss-%A_%a.out" --error="${LOG_DIR}/tss-%A_%a.err" \
         --array=0-$((S-1))%"${THROTTLE}" \
         tss_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-BEDGRAPH=$(sbatch --parsable ${SOPTS} --dependency=afterok:${TAGDIR}:${TAGDIR_COMBO} \
+BEDGRAPH=$(sbatch --parsable ${SOPTS} --dependency=afterany:${TAGDIR}:${TAGDIR_COMBO} \
         --output="${LOG_DIR}/bedgraphs-%A_%a.out" --error="${LOG_DIR}/bedgraphs-%A_%a.err" \
         --array=0-$((S-1))%"${THROTTLE}" \
         bedgraphs_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
