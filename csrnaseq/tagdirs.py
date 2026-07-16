@@ -94,21 +94,36 @@ def run_combo_tagdirs(cfg, group=None) -> None:
     combo_groups: dict[tuple[str, str, str], list] = defaultdict(list)
     any_found = False
 
+    expected_leaves: dict[tuple[str, str, str], int] = defaultdict(int)
+
     for species, sample, ld in iter_leaf_dirs(cfg):
         if group is not None and (species, sample) != group:
             continue
-        sams = sorted((ld / "Aligned").glob("*.Aligned.out.sam"))
-        if not sams:
-            continue
-        any_found = True
 
         assay = assay_of_leaf(ld.name)
         if not assay:
             log.warning("tagdir-combo: could not classify assay for %s/%s/%s",
                         species, sample, ld.name)
             continue
+        expected_leaves[(species, sample, assay)] += 1
+
+        sams = sorted((ld / "Aligned").glob("*.Aligned.out.sam"))
+        if not sams:
+            log.warning("tagdir-combo: no aligned SAM for %s/%s/%s — this replicate "
+                        "will be MISSING from the combo TagDir (check align logs).",
+                        species, sample, ld.name)
+            continue
+        any_found = True
 
         combo_groups[(species, sample, assay)].extend(sams)
+
+    for key, n_expected in expected_leaves.items():
+        n_found = len(set(combo_groups.get(key, [])))
+        if 0 < n_found < n_expected:
+            species, sample, assay = key
+            log.warning("tagdir-combo: %s/%s/%s-combo built from only %d of %d "
+                        "expected replicate(s) — one or more alignments failed/missing.",
+                        species, sample, assay, n_found, n_expected)
 
     if not any_found:
         log.info("tagdir-combo: no *.Aligned.out.sam under nested Aligned/ dirs in %s", cfg.project)
