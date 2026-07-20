@@ -22,6 +22,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from .utils import assay_of_leaf
+
 
 def _env(name: str, default):
     v = os.getenv(name)
@@ -93,34 +95,54 @@ class Config:
     @property
     def starindex(self) -> Path: return Path(self.genome_index)
 
-    # ── Species/Sample nested-layout helpers (always used, not opt-in) ────────
+    # ── Species/Sample/<assay> layout ──────────────────────────────────────────
+    # RawData/Trimmed/Aligned are shared across every replicate of one assay
+    # (NOT one subfolder per replicate) — filenames alone distinguish
+    # replicates there. TagDirs/bedGraphs/RITRIE still nest one subfolder per
+    # replicate (+ one for the combo), since makeTagDirectory needs a real,
+    # distinct directory per tag directory; that part of the old per-replicate
+    # nesting can't go away. QC/ and TSS/ stay directly under Sample/, outside
+    # any assay folder, since TSS calling and QC are per-sample, not per-assay.
     def sample_dir(self, species: str, sample: str) -> Path:
         """Species/Sample/ — where per-sample QC and TSS live."""
         return self.project / species / sample
 
-    def run_dir(self, species: str, sample: str, leaf_name: str) -> Path:
-        """Species/Sample/<assay_rep>/ — where per-run RawData/Trimmed/Aligned/
-        TagDir/bedGraph live."""
-        return self.sample_dir(species, sample) / leaf_name
+    def assay_dir(self, species: str, sample: str, assay: str) -> Path:
+        """Species/Sample/<assay>/ — one folder per assay (csRNA/sRNA/totalRNA)."""
+        return self.sample_dir(species, sample) / assay
 
-    # ── Nested TagDir/bedGraph/QC/TSS paths (replace the old flat dirs) ───────
+    def assay_rawdata(self, species: str, sample: str, assay: str) -> Path:
+        """Species/Sample/<assay>/RawData — every replicate's FASTQs together."""
+        return self.assay_dir(species, sample, assay) / "RawData"
+
+    def assay_trimmed(self, species: str, sample: str, assay: str) -> Path:
+        """Species/Sample/<assay>/Trimmed — every replicate's trimmed output together."""
+        return self.assay_dir(species, sample, assay) / "Trimmed"
+
+    def assay_aligned(self, species: str, sample: str, assay: str) -> Path:
+        """Species/Sample/<assay>/Aligned — every replicate's SAM together."""
+        return self.assay_dir(species, sample, assay) / "Aligned"
+
     def leaf_tagdir(self, species: str, sample: str, leaf_name: str) -> Path:
-        """Species/Sample/<assay_rep>/TagDir — one per individual replicate."""
-        return self.run_dir(species, sample, leaf_name) / "TagDir"
-
-    def leaf_bedgraph(self, species: str, sample: str, leaf_name: str) -> Path:
-        """Species/Sample/<assay_rep>/bedGraph — one per individual replicate."""
-        return self.run_dir(species, sample, leaf_name) / "bedGraph"
-
-    def combo_dir(self, species: str, sample: str, assay: str) -> Path:
-        """Species/Sample/<assay>-combo/ — merged-replicate run for one assay."""
-        return self.sample_dir(species, sample) / f"{assay}-combo"
+        """Species/Sample/<assay>/TagDirs/<leaf_name> — one per individual
+        replicate. assay is derived from leaf_name (via assay_of_leaf) so
+        callers keep passing just the leaf name, same as before this layout
+        changed — they don't need to separately track/pass the assay too."""
+        assay = assay_of_leaf(leaf_name)
+        return self.assay_dir(species, sample, assay) / "TagDirs" / leaf_name
 
     def combo_tagdir(self, species: str, sample: str, assay: str) -> Path:
-        return self.combo_dir(species, sample, assay) / "TagDir"
+        """Species/Sample/<assay>/TagDirs/<assay>-combo — merged-replicate TagDir."""
+        return self.assay_dir(species, sample, assay) / "TagDirs" / f"{assay}-combo"
+
+    def leaf_bedgraph(self, species: str, sample: str, leaf_name: str) -> Path:
+        """Species/Sample/<assay>/bedGraphs/<leaf_name> — one per individual replicate."""
+        assay = assay_of_leaf(leaf_name)
+        return self.assay_dir(species, sample, assay) / "bedGraphs" / leaf_name
 
     def combo_bedgraph(self, species: str, sample: str, assay: str) -> Path:
-        return self.combo_dir(species, sample, assay) / "bedGraph"
+        """Species/Sample/<assay>/bedGraphs/<assay>-combo — merged-replicate bedGraph."""
+        return self.assay_dir(species, sample, assay) / "bedGraphs" / f"{assay}-combo"
 
     def sample_qc(self, species: str, sample: str) -> Path:
         """Species/Sample/QC — one QC dir per sample, covering all assays."""
@@ -138,9 +160,10 @@ class Config:
         return self.project / species / "RITRIE" / "parsed_gtf_exons.tsv"
 
     def leaf_ritrie(self, species: str, sample: str, leaf_name: str) -> Path:
-        """Species/Sample/<assay_rep>/RITRIE — working dir for one csRNA
-        replicate's RIT/RIE intermediates (iTSS peaks, merges, annotations)."""
-        return self.run_dir(species, sample, leaf_name) / "RITRIE"
+        """Species/Sample/<assay>/RITRIE/<leaf_name> — working dir for one
+        csRNA replicate's RIT/RIE intermediates (iTSS peaks, merges, annotations)."""
+        assay = assay_of_leaf(leaf_name)
+        return self.assay_dir(species, sample, assay) / "RITRIE" / leaf_name
 
 
 def load_config(args=None) -> Config:
