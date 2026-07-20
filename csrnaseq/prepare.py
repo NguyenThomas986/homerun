@@ -9,7 +9,7 @@ import glob
 import shutil
 from datetime import datetime
 from pathlib import Path
-from .utils import run, log, parse_sample_name, list_samples
+from .utils import run, log, parse_sample_name, assay_of_leaf, list_samples
 
 def setup_dirs(cfg) -> None:
     # Only the project-wide logs/ dir is created up front; per-sample
@@ -22,9 +22,13 @@ def setup_dirs(cfg) -> None:
     log.info("  %s  %s", "exists " if existed else "CREATED", d)
 
 def _stage_one(cfg, src: Path) -> None:
-    """Parse src's filename and move/copy it into its nested RawData/ dir."""
+    """Parse src's filename and move/copy it into its assay's shared RawData/ dir
+    (Species/Sample/<assay>/RawData/ — shared across every replicate of that
+    assay, not one folder per replicate; the filename itself still uniquely
+    identifies the replicate downstream)."""
     species, sample, leaf = parse_sample_name(src.name)
-    dst_dir = cfg.run_dir(species, sample, leaf) / "RawData"
+    assay = assay_of_leaf(leaf)
+    dst_dir = cfg.assay_rawdata(species, sample, assay)
     dst_dir.mkdir(parents=True, exist_ok=True)
     dst = dst_dir / src.name
     if dst.exists():
@@ -55,7 +59,8 @@ def copy_raw(cfg) -> None:
         except ValueError as exc:
             log.warning("copy_raw: skipping %s (%s)", src.name, exc)
             continue
-        dst_dir = cfg.run_dir(species, sample, leaf) / "RawData"
+        assay = assay_of_leaf(leaf)
+        dst_dir = cfg.assay_rawdata(species, sample, assay)
         dst_dir.mkdir(parents=True, exist_ok=True)
         dst = dst_dir / src.name
         if dst.exists():
