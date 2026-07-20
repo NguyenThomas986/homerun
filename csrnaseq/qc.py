@@ -31,8 +31,10 @@ def _all_combos(cfg, species, sample):
 
 
 def _label(d) -> str:
-    """Readable name for a combo TagDir, e.g. 'csRNA-combo' (d.name is just 'TagDir')."""
-    return d.parent.name
+    """Readable name for a TagDir, e.g. 'csRNA-combo' or 'csRNA_r1'. The tag
+    directory itself is named that (Species/Sample/<assay>/TagDirs/<name>),
+    not nested one level further under a generic 'TagDir' folder."""
+    return d.name
 
 
 # ── Existing plots ────────────────────────────────────────────────────────────
