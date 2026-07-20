@@ -113,8 +113,7 @@ def _write_peak_subset(itss_df, ids: set[str], out_path) -> int:
 
 # ── Per-replicate RIT/RIE ─────────────────────────────────────────────────────
 
-def _ritrie_for_leaf(cfg, species, sample, leaf_dir, tsr_file, gtf_exons) -> dict | None:
-    leaf_name = leaf_dir.name
+def _ritrie_for_leaf(cfg, species, sample, leaf_name, tsr_file, gtf_exons) -> dict | None:
     label = f"{species}/{sample}/{leaf_name}"
     tagdir = cfg.leaf_tagdir(species, sample, leaf_name)
     if not tagdir.is_dir():
@@ -209,15 +208,15 @@ def _run_ritrie_sample(cfg, species, sample, gtf_exons) -> None:
         log.info("ritrie: no %s.tss.txt for %s/%s yet — run 'tss' first.", sample, species, sample)
         return
 
-    leaf_runs = [ld for sp, sa, ld in iter_leaf_dirs(cfg)
-                 if sp == species and sa == sample and assay_of_leaf(ld.name) == "csRNA"]
-    if not leaf_runs:
+    leaf_names = [leaf_name for sp, sa, leaf_name, _r1 in iter_leaf_dirs(cfg)
+                  if sp == species and sa == sample and assay_of_leaf(leaf_name) == "csRNA"]
+    if not leaf_names:
         log.info("ritrie: no csRNA leaf runs for %s/%s", species, sample)
         return
 
     rows = []
-    for leaf_dir in leaf_runs:
-        row = _ritrie_for_leaf(cfg, species, sample, leaf_dir, tsr_file, gtf_exons)
+    for leaf_name in leaf_names:
+        row = _ritrie_for_leaf(cfg, species, sample, leaf_name, tsr_file, gtf_exons)
         if row is not None:
             rows.append(row)
 
