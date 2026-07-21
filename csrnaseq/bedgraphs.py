@@ -22,14 +22,25 @@ def run_bedgraphs(cfg, group=None) -> None:
     # directory's own name two levels up, no classification needed (unlike
     # the old flat layout, where a folder like '<assay_rep>' or
     # '<assay>-combo' had to be parsed to recover the assay).
-    tagdirs = sorted(p for p in cfg.project.glob("*/*/*/TagDirs/*") if p.is_dir())
-    if group is not None:
-        sp, sa = group
-        tagdirs = [td for td in tagdirs
-                   if td.parent.parent.name == sa and td.parent.parent.parent.name == sp]
-    if not tagdirs:
+    all_tagdirs = sorted(p for p in cfg.project.glob("*/*/*/TagDirs/*") if p.is_dir())
+    if not all_tagdirs:
         log.info("bedGraph: no TagDirs/* under %s", cfg.project)
         return
+
+    tagdirs = all_tagdirs
+    if group is not None:
+        sp, sa = group
+        # td = Species/Sample/<assay>/TagDirs/<leaf_or_combo> so td.parent.parent
+        # is the ASSAY dir ("csRNA"), not the sample — sample and species are
+        # one and two levels further up, respectively (matches the per-item
+        # extraction below, which starts from assay_dir = td.parent.parent).
+        tagdirs = [td for td in all_tagdirs
+                   if td.parent.parent.parent.name == sa
+                   and td.parent.parent.parent.parent.name == sp]
+        if not tagdirs:
+            log.info("bedGraph: %d TagDirs exist under %s, but none matched "
+                     "group %s/%s", len(all_tagdirs), cfg.project, sp, sa)
+            return
 
     skip = f"-skipChr {cfg.skip_chr} " if cfg.skip_chr else ""
     for td in tagdirs:
