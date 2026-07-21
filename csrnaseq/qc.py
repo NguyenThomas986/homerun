@@ -13,9 +13,11 @@ import numpy as np                     # noqa: E402
 import pandas as pd                    # noqa: E402
 import seaborn as sns                  # noqa: E402
 
-from .utils import log, iter_samples  # noqa: E402
+from .utils import log, iter_samples, iter_leaf_dirs, assay_of_leaf  # noqa: E402
+from .stability import _read_homer_tss, _location, DISTAL_C, PROX_C  # noqa: E402
 
 _ASSAYS = ("csRNA", "sRNA", "totalRNA")
+_ASSAY_COLORS = {"csRNA": "#2c7fb8", "sRNA": "#de7c00", "totalRNA": "#636363"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -35,6 +37,40 @@ def _label(d) -> str:
     directory itself is named that (Species/Sample/<assay>/TagDirs/<name>),
     not nested one level further under a generic 'TagDir' folder."""
     return d.name
+
+
+def _leaf_tagdirs_for_sample(cfg, species, sample):
+    """(leaf_name, tagdir_path) for every individual (non-combo) replicate
+    TagDir under this sample, across all assays — sorted csRNA replicates
+    first, then sRNA, then totalRNA, so a multi-assay grid/table groups
+    naturally instead of interleaving by whatever order the filesystem
+    happens to return."""
+    seen = set()
+    out = []
+    for sp, sa, leaf_name, _r1 in iter_leaf_dirs(cfg):
+        if sp != species or sa != sample or leaf_name in seen:
+            continue
+        seen.add(leaf_name)
+        td = cfg.leaf_tagdir(species, sample, leaf_name)
+        if td.is_dir():
+            out.append((leaf_name, td))
+
+    order = {"csRNA": 0, "sRNA": 1, "totalRNA": 2}
+
+    def _sort_key(item):
+        leaf_name, _td = item
+        return (order.get(assay_of_leaf(leaf_name), 3), leaf_name)
+
+    return sorted(out, key=_sort_key)
+
+
+def _grid_shape(n: int, max_cols: int = 4) -> tuple[int, int]:
+    """(rows, cols) for a compact subplot grid of n panels — used by the
+    per-replicate plots so they scale to many replicates (e.g. 50+) as a
+    grid of small panels instead of one crowded overlay."""
+    cols = min(max_cols, n) if n > 0 else 1
+    rows = (n + cols - 1) // cols
+    return rows, cols
 
 
 # ── Existing plots ────────────────────────────────────────────────────────────
@@ -281,17 +317,19 @@ def qc_tsr_annotation(cfg, species, sample, qc_dir) -> None:
     log.info("QC: tsr_annotation.png")
 
 
-def qc_tagdir_stats(cfg, species, sample, qc_dir) -> None:
-    """Table of key stats from tagInfo.txt for each combo tag directory."""
-    combos = _all_combos(cfg, species, sample)
+def _tagdir_stats_rows(tagdirs_with_labels) -> list[dict]:
+    """One row of tagInfo.txt stats per (label, tagdir_path) pair — shared by
+    the combo-level table (qc_tagdir_stats) and the per-replicate table
+    (qc_tagdir_stats_per_replicate) so both read the exact same fields the
+    exact same way."""
     rows = []
-    for d in combos:
+    for label, d in tagdirs_with_labels:
         info = d / "tagInfo.txt"
         if not info.exists():
             continue
         txt = info.read_text()
 
-        def _val(key):
+        def _val(key, txt=txt):
             for line in txt.splitlines():
                 if line.startswith(key):
                     return line.split("=")[-1].strip()
@@ -300,7 +338,7 @@ def qc_tagdir_stats(cfg, species, sample, qc_dir) -> None:
         genome_line = next((l for l in txt.splitlines() if l.startswith("genome=")), "")
         parts = genome_line.split("\t")
         rows.append({
-            "TagDir":                    _label(d),
+            "TagDir":                    label,
             "Total Tags":                parts[2].strip() if len(parts) > 2 else "NA",
             "Unique Positions":          parts[1].strip() if len(parts) > 1 else "NA",
             "Tags per BP":               _val("tagsPerBP"),
@@ -309,21 +347,67 @@ def qc_tagdir_stats(cfg, species, sample, qc_dir) -> None:
             "Avg Read Length":           _val("averageTagLength"),
             "Avg Fragment GC":           _val("averageFragmentGCcontent"),
         })
+    return rows
 
+
+def _save_stats_table(rows: list[dict], title: str, out_path, transpose: bool = True) -> bool:
+    """Render tagdir-stats rows as a table PNG. Returns False (and writes
+    nothing) if there are no rows, so callers can log why and skip.
+
+    transpose=True (metrics as rows, one column per TagDir) reads well for a
+    handful of TagDirs (the combo case: at most csRNA/sRNA/totalRNA). With
+    many TagDirs (the per-replicate case, potentially 50+) that layout grows
+    the image absurdly WIDE instead of tall, so transpose=False keeps
+    TagDirs as rows instead — the image grows vertically, which scrolls
+    normally in an HTML report instead of requiring horizontal scrolling.
+    """
     if not rows:
-        log.info("QC tagdir stats: no tagInfo.txt found for %s/%s", species, sample); return
-
-    df = pd.DataFrame(rows).set_index("TagDir").T
-    fig, ax = plt.subplots(figsize=(max(6, 3 * len(rows)), len(df) * 0.5 + 1))
+        return False
+    df = pd.DataFrame(rows).set_index("TagDir")
+    n = len(df)
+    if transpose:
+        df = df.T
+        figsize = (max(6, 3 * n), len(df) * 0.5 + 1)
+    else:
+        figsize = (max(8, 1.3 * len(df.columns)), max(3, 0.35 * n + 1.5))
+    fig, ax = plt.subplots(figsize=figsize)
     ax.axis("off")
     tbl = ax.table(cellText=df.values, rowLabels=df.index,
                    colLabels=df.columns, cellLoc="center", loc="center")
     tbl.auto_set_font_size(False); tbl.set_fontsize(9)
     tbl.auto_set_column_width(col=list(range(len(df.columns) + 1)))
-    plt.title("Tag Directory Stats", fontsize=11, pad=10)
+    plt.title(title, fontsize=11, pad=10)
     plt.tight_layout()
-    plt.savefig(qc_dir / "tagdir_stats.png", dpi=150, bbox_inches="tight"); plt.close()
+    plt.savefig(out_path, dpi=150, bbox_inches="tight"); plt.close()
+    return True
+
+
+def qc_tagdir_stats(cfg, species, sample, qc_dir) -> None:
+    """Table of key stats from tagInfo.txt for each combo tag directory.
+    Sample-level / combined-only — unchanged behavior, now built on the
+    shared row/table helpers used by the new per-replicate version too."""
+    combos = _all_combos(cfg, species, sample)
+    rows = _tagdir_stats_rows([(_label(d), d) for d in combos])
+    if not rows:
+        log.info("QC tagdir stats: no tagInfo.txt found for %s/%s", species, sample); return
+    _save_stats_table(rows, "Tag Directory Stats", qc_dir / "tagdir_stats.png")
     log.info("QC: tagdir_stats.png")
+
+
+def qc_tagdir_stats_per_replicate(cfg, species, sample, qc_dir) -> None:
+    """Same table as qc_tagdir_stats, but one column per INDIVIDUAL replicate
+    TagDir instead of per combo — so a replicate with an unusually low tag
+    count, GC content, or median-tags-per-position is visible even though
+    it'll be averaged away once merged into the combo."""
+    leaves = _leaf_tagdirs_for_sample(cfg, species, sample)
+    rows = _tagdir_stats_rows(leaves)
+    if not rows:
+        log.info("QC tagdir stats (per-replicate): no tagInfo.txt found for %s/%s",
+                 species, sample)
+        return
+    _save_stats_table(rows, "Tag Directory Stats — per replicate",
+                      qc_dir / "tagdir_stats_per_replicate.png", transpose=False)
+    log.info("QC: tagdir_stats_per_replicate.png (%d replicate(s))", len(rows))
 
 
 def _tags_vs_frac_combined(cfg, species, sample, qc_dir) -> None:
@@ -382,12 +466,152 @@ def _a_plot_combined(cfg, species, sample, qc_dir) -> None:
     log.info("QC: Aplot.png")
 
 
+# ── Per-replicate plots (NEW) ─────────────────────────────────────────────────
+# These read straight from each individual (non-combo) replicate's own TagDir,
+# so a problem specific to one replicate — a bad library, an alignment issue,
+# an unusual length/nucleotide profile — is visible even after replicates get
+# merged into the combo TagDir the sample-level plots above are built from.
+# Rendered as a compact grid (one small panel per replicate) rather than one
+# crowded overlay, so this scales to samples with many replicates.
+
+def qc_read_length_per_replicate(cfg, species, sample, qc_dir) -> None:
+    leaves = [(n, d) for n, d in _leaf_tagdirs_for_sample(cfg, species, sample)
+              if (d / "tagLengthDistribution.txt").exists()]
+    if not leaves:
+        log.info("QC read-length (per-replicate): no tagLengthDistribution.txt yet.")
+        return
+
+    rows, cols = _grid_shape(len(leaves))
+    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3 * rows), squeeze=False)
+    for ax, (leaf_name, d) in zip(axes.flat, leaves):
+        color = _ASSAY_COLORS.get(assay_of_leaf(leaf_name), "steelblue")
+        df = pd.read_csv(d / "tagLengthDistribution.txt", sep="\t", index_col=0)
+        ax.plot(df.index, df.iloc[:, 0], color=color, lw=1.5)
+        ax.set_title(leaf_name, fontsize=9)
+        ax.tick_params(labelsize=7)
+    for ax in axes.flat[len(leaves):]:
+        ax.axis("off")
+
+    fig.supxlabel("Read length (nt)"); fig.supylabel("Fraction of reads")
+    fig.suptitle("Read length distribution — per replicate", y=1.02)
+    plt.tight_layout()
+    plt.savefig(qc_dir / "read_length_distribution_per_replicate.png",
+               dpi=150, bbox_inches="tight")
+    plt.close()
+    log.info("QC: read_length_distribution_per_replicate.png (%d replicate(s))", len(leaves))
+
+
+def qc_nucleotide_freq_per_replicate(cfg, species, sample, qc_dir) -> None:
+    leaves = [(n, d) for n, d in _leaf_tagdirs_for_sample(cfg, species, sample)
+              if (d / "tagFreqUniq.txt").exists()]
+    if not leaves:
+        log.info("QC nt-freq (per-replicate): no tagFreqUniq.txt yet.")
+        return
+
+    nt_colors = {"A": "steelblue", "C": "darkorange", "G": "gray", "T": "gold"}
+    rows, cols = _grid_shape(len(leaves))
+    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3 * rows), squeeze=False)
+    for i, (ax, (leaf_name, d)) in enumerate(zip(axes.flat, leaves)):
+        df = pd.read_csv(d / "tagFreqUniq.txt", index_col=0, sep="\t")
+        for nt, color in nt_colors.items():
+            if nt in df.columns:
+                ax.plot(df.index, df[nt], color=color, lw=1.2, label=(nt if i == 0 else None))
+        ax.set_title(leaf_name, fontsize=9)
+        ax.tick_params(labelsize=7)
+    for ax in axes.flat[len(leaves):]:
+        ax.axis("off")
+    axes.flat[0].legend(fontsize=7, loc="upper right")
+
+    fig.supxlabel("Distance from 5' end of read"); fig.supylabel("Nucleotide frequency")
+    fig.suptitle("Nucleotide frequency — per replicate", y=1.02)
+    plt.tight_layout()
+    plt.savefig(qc_dir / "nucleotide_frequency_per_replicate.png",
+               dpi=150, bbox_inches="tight")
+    plt.close()
+    log.info("QC: nucleotide_frequency_per_replicate.png (%d replicate(s))", len(leaves))
+
+
+def qc_autocorrelation_per_replicate(cfg, species, sample, qc_dir) -> None:
+    leaves = [(n, d) for n, d in _leaf_tagdirs_for_sample(cfg, species, sample)
+              if (d / "tagAutocorrelation.txt").exists()]
+    if not leaves:
+        log.info("QC autocorrelation (per-replicate): no tagAutocorrelation.txt yet.")
+        return
+
+    col_colors = {"Same Strand": "steelblue", "Opposite Strand": "darkorange"}
+    rows, cols = _grid_shape(len(leaves))
+    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3 * rows), squeeze=False)
+    for i, (ax, (leaf_name, d)) in enumerate(zip(axes.flat, leaves)):
+        df = pd.read_csv(d / "tagAutocorrelation.txt", sep="\t", index_col=0, header=0,
+                         names=["Same Strand", "Opposite Strand"]).iloc[1400:2601]
+        for col, color in col_colors.items():
+            ax.plot(df.index, df[col], color=color, lw=1.2, label=(col if i == 0 else None))
+        ax.set_title(leaf_name, fontsize=9)
+        ax.tick_params(labelsize=7)
+    for ax in axes.flat[len(leaves):]:
+        ax.axis("off")
+    axes.flat[0].legend(fontsize=7, loc="upper right")
+
+    fig.supxlabel("Distance from 5' end of read"); fig.supylabel("Read counts rel. to 5' end")
+    fig.suptitle("Autocorrelation — per replicate", y=1.02)
+    plt.tight_layout()
+    plt.savefig(qc_dir / "autocorrelation_per_replicate.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    log.info("QC: autocorrelation_per_replicate.png (%d replicate(s))", len(leaves))
+
+
+# ── Distal vs. proximal TSS pie chart (NEW, combined/sample-level) ───────────
+
+def qc_distal_proximal_pie(cfg, species, sample, qc_dir) -> None:
+    """Promoter-proximal vs. distal TSS proportions, straight from the
+    combined *.tss.txt's location column (same detection stability.py's
+    _location() uses). Always generated as its own standing QC check,
+    independent of whether stability/total-RNA info is available — unlike
+    stability.py's combined stable/unstable+location pie, which only ever
+    falls back to showing location when there's no total RNA, so a csRNA/
+    sRNA-only sample (no total RNA) still gets this chart."""
+    files = sorted(cfg.sample_tss(species, sample).glob("*.tss.txt"))
+    if not files:
+        log.info("QC distal/proximal: no *.tss.txt for %s/%s", species, sample)
+        return
+
+    locs = []
+    for f in files:
+        df = _read_homer_tss(f)
+        loc, _how = _location(cfg, df)
+        if loc is not None:
+            locs.append(loc)
+    if not locs:
+        log.info("QC distal/proximal: no location column found for %s/%s — skipping.",
+                 species, sample)
+        return
+
+    all_loc = pd.concat(locs, ignore_index=True).dropna()
+    counts = all_loc.value_counts().reindex(["proximal", "distal"]).fillna(0)
+    total = counts.sum()
+    if total <= 0:
+        log.info("QC distal/proximal: zero valid TSSs for %s/%s — skipping.", species, sample)
+        return
+
+    plt.figure(figsize=(5, 5))
+    plt.pie(counts.values,
+            labels=[f"{i.capitalize()} ({int(v)}, {v / total * 100:.1f}%)"
+                   for i, v in counts.items()],
+            colors=[PROX_C, DISTAL_C], startangle=90)
+    plt.title(f"{species}/{sample} — Promoter-proximal vs. distal TSSs")
+    plt.tight_layout()
+    plt.savefig(qc_dir / "distal_proximal_pie.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    log.info("QC: distal_proximal_pie.png (%s/%s)", species, sample)
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def _run_qc_one(cfg, species, sample) -> None:
     qc_dir = cfg.sample_qc(species, sample)
     qc_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Sample-level QC (from combined/-combo TagDirs) — unchanged ──────────
     qc_read_length(cfg, species, sample, qc_dir)
     qc_nucleotide_freq(cfg, species, sample, qc_dir)
     qc_autocorrelation(cfg, species, sample, qc_dir)
@@ -404,6 +628,13 @@ def _run_qc_one(cfg, species, sample) -> None:
     qc_tsr_summary(cfg, species, sample, qc_dir)
     qc_tsr_annotation(cfg, species, sample, qc_dir)
     qc_tagdir_stats(cfg, species, sample, qc_dir)
+    qc_distal_proximal_pie(cfg, species, sample, qc_dir)
+
+    # ── Per-replicate QC (from each individual leaf TagDir) — new ───────────
+    qc_read_length_per_replicate(cfg, species, sample, qc_dir)
+    qc_nucleotide_freq_per_replicate(cfg, species, sample, qc_dir)
+    qc_autocorrelation_per_replicate(cfg, species, sample, qc_dir)
+    qc_tagdir_stats_per_replicate(cfg, species, sample, qc_dir)
 
 
 def run_qc(cfg) -> None:
