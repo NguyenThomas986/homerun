@@ -51,6 +51,7 @@ _QC_CSS = _COMMON_CSS + """
   .data-section h2 { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500;
                      color: #888; margin-bottom: 8px; text-transform: uppercase;
                      letter-spacing: 0.08em; }
+  .section-note { font-size: 12px; color: #888; margin-top: -16px; margin-bottom: 24px; }
 """
 
 _IMG_ORDER = [
@@ -62,7 +63,20 @@ _IMG_ORDER = [
     "autocorrelation", "threshold_optimization",
     "tsr_summary", "tsr_annotation", "ritrie",
     "stability_by_location_stacked_bar", "location_stacked_bar", "tsr_pie",
+    "distal_proximal_pie",
 ]
+
+# Per-replicate images (from individual leaf TagDirs, not the combo) get
+# their own report section — see _PER_REPLICATE_STEMS below. Ordered
+# separately from _IMG_ORDER so the two sections don't need to interleave.
+_IMG_ORDER_PER_REPLICATE = [
+    "read_length_distribution_per_replicate",
+    "nucleotide_frequency_per_replicate",
+    "autocorrelation_per_replicate",
+    "tagdir_stats_per_replicate",
+]
+
+_PER_REPLICATE_STEMS = frozenset(_IMG_ORDER_PER_REPLICATE)
 
 # key: filename stem prefix (matched with startswith) -> (source, short description)
 _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
@@ -127,6 +141,34 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "*.tss.txt (TSS/)",
         "Pooled stable/unstable split across the sample.",
     ),
+    "distal_proximal_pie": (
+        "*.tss.txt (TSS/)",
+        "Promoter-proximal vs. distal split across every called TSR, "
+        "generated regardless of whether total RNA/stability is available.",
+    ),
+    "read_length_distribution_per_replicate": (
+        "tagLengthDistribution.txt (each individual leaf TagDir)",
+        "Read length distribution for each individual replicate — an "
+        "unusual profile here can be masked once replicates are merged "
+        "into the combo library above.",
+    ),
+    "nucleotide_frequency_per_replicate": (
+        "tagFreqUniq.txt (each individual leaf TagDir)",
+        "Base composition near the start of each read, per individual "
+        "replicate rather than the merged combo library.",
+    ),
+    "autocorrelation_per_replicate": (
+        "tagAutocorrelation.txt (each individual leaf TagDir)",
+        "How reads cluster relative to each other and to strand, per "
+        "individual replicate rather than the merged combo library.",
+    ),
+    "tagdir_stats_per_replicate": (
+        "tagInfo.txt (each individual leaf TagDir)",
+        "Same summary stats as the combo table above, but one row per "
+        "individual replicate — a low tag count, unusual GC content, or "
+        "poor median-tags-per-position on one replicate is visible here "
+        "even though it would be averaged away once merged into the combo.",
+    ),
     "ritrie": (
         "RITRIE/ritrie.tsv (per csRNA replicate)",
         "Higher RIT/RIE values generally indicate stronger enrichment of "
@@ -138,19 +180,26 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
 
 
 def _get_description(stem: str) -> tuple[str, str] | None:
-    """Return (source, description) for a plot stem, or None."""
+    """Return (source, description) for a plot stem, or None. Exact match is
+    tried first — otherwise e.g. 'read_length_distribution_per_replicate'
+    would match the shorter 'read_length_distribution' prefix before ever
+    reaching its own, more specific entry."""
+    if stem in _IMG_DESCRIPTIONS:
+        return _IMG_DESCRIPTIONS[stem]
     for prefix, desc in _IMG_DESCRIPTIONS.items():
-        if stem == prefix or stem.startswith(prefix):
+        if stem.startswith(prefix):
             return desc
     return None
 
 
-def _img_sort_key(name: str) -> tuple:
+def _img_sort_key(name: str, order: list[str]) -> tuple:
     stem = Path(name).stem
-    for i, prefix in enumerate(_IMG_ORDER):
-        if stem == prefix or stem.startswith(prefix):
+    if stem in order:
+        return (order.index(stem), stem)
+    for i, prefix in enumerate(order):
+        if stem.startswith(prefix):
             return (i, stem)
-    return (len(_IMG_ORDER), stem)
+    return (len(order), stem)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -177,40 +226,65 @@ def _html_page(title: str, subtitle: str, now: str, body: str, css: str) -> str:
 
 # ── QC builder ────────────────────────────────────────────────────────────────
 
+def _render_img_grid(imgs: list[Path], heading: str, note: str = "") -> str:
+    """Render one section-labeled grid of images, or '' if imgs is empty."""
+    if not imgs:
+        return ""
+    items = ""
+    for f in imgs:
+        try:
+            b64 = base64.b64encode(f.read_bytes()).decode()
+            desc = _get_description(f.stem)
+            caption_html = ""
+            if desc:
+                source, text = desc
+                caption_html = (f'<div class="img-caption">'
+                                f'<div class="cap-source">Source: {source}</div>'
+                                f'<div class="cap-desc">{text}</div>'
+                                f'</div>')
+            items += (f'<div class="img-item">'
+                      f'<div class="img-name">{f.name}</div>'
+                      f'<img src="data:image/png;base64,{b64}" alt="{f.name}">'
+                      f'{caption_html}'
+                      f"</div>")
+        except Exception as exc:
+            log.warning("report: could not embed %s: %s", f.name, exc)
+    if not items:
+        return ""
+    note_html = f'<div class="section-note">{note}</div>' if note else ""
+    return (f'<div class="section-label">{heading}</div>'
+           f'{note_html}'
+           f'<div class="img-grid">{items}</div>')
+
+
 def _build_qc_html(species: str, sample: str, qc_dir: Path, now: str) -> str:
-    imgs = sorted(
-        [f for f in qc_dir.glob("*.png") if f.is_file()],
-        key=lambda f: _img_sort_key(f.name),
+    all_imgs = [f for f in qc_dir.glob("*.png") if f.is_file()]
+
+    # Per-replicate images (from individual leaf TagDirs) get their own
+    # section, separate from sample-level images (from the combined/-combo
+    # TagDirs) — sorted independently against each one's own order list, so
+    # the two sections never interleave regardless of matching filenames.
+    per_rep_imgs = sorted(
+        (f for f in all_imgs if f.stem in _PER_REPLICATE_STEMS),
+        key=lambda f: _img_sort_key(f.name, _IMG_ORDER_PER_REPLICATE),
     )
+    sample_imgs = sorted(
+        (f for f in all_imgs if f.stem not in _PER_REPLICATE_STEMS),
+        key=lambda f: _img_sort_key(f.name, _IMG_ORDER),
+    )
+
     txts = sorted(
         f for f in qc_dir.iterdir()
         if f.is_file() and f.suffix in (".txt", ".tsv", ".csv")
     )
 
-    img_section = ""
-    if imgs:
-        items = ""
-        for f in imgs:
-            try:
-                b64 = base64.b64encode(f.read_bytes()).decode()
-                desc = _get_description(f.stem)
-                caption_html = ""
-                if desc:
-                    source, text = desc
-                    caption_html = (f'<div class="img-caption">'
-                                    f'<div class="cap-source">Source: {source}</div>'
-                                    f'<div class="cap-desc">{text}</div>'
-                                    f'</div>')
-                items += (f'<div class="img-item">'
-                          f'<div class="img-name">{f.name}</div>'
-                          f'<img src="data:image/png;base64,{b64}" alt="{f.name}">'
-                          f'{caption_html}'
-                          f"</div>")
-            except Exception as exc:
-                log.warning("report: could not embed %s: %s", f.name, exc)
-        if items:
-            img_section = (f'<div class="section-label">Images</div>'
-                           f'<div class="img-grid">{items}</div>')
+    img_section = _render_img_grid(sample_imgs, "Sample-Level QC")
+    img_section += _render_img_grid(
+        per_rep_imgs, "Per-Replicate QC",
+        note=("Generated from each individual replicate's own TagDir, not the "
+              "merged combo library above — useful for spotting a problem "
+              "replicate before it gets averaged away."),
+    )
 
     txt_section = ""
     if txts:
