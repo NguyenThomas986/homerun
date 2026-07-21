@@ -54,6 +54,31 @@ The main configuration logic lives in [config.py](config.py).
 - [report.py](report.py): assembles HTML reports
 - [utils.py](utils.py): shared helpers and logging
 
+## QC: sample-level vs. per-replicate
+
+`qc.py` generates two kinds of plots into each sample's `QC/` folder, and
+`qc_report.html` presents them in two separate sections:
+
+- **Sample-Level QC** — built from the merged **combo** TagDir(s) (one per
+  assay: `csRNA-combo`, `sRNA-combo`, `totalRNA-combo`). This describes the
+  final, merged sample and is unchanged from before: read length
+  distribution, nucleotide frequency, autocorrelation, tag directory stats,
+  median tags/position, the A-plot and tags-vs-fraction-of-positions
+  overlays, plus everything derived from TSS calling (threshold
+  optimization, TSR summary/annotation, TSS nucleotide frequency,
+  stability/location, and the distal-vs-proximal pie chart) — these are all
+  inherently per-sample, since `findcsRNATSS.pl` only ever runs once per
+  sample, on the combo TagDirs, not per replicate.
+- **Per-Replicate QC** — built from each **individual** leaf TagDir
+  (`csRNA_r1`, `csRNA_r2`, `sRNA_r1`, ...), so a problem specific to one
+  replicate (a bad library, an alignment issue, an unusual length or
+  nucleotide profile) is visible even after replicates are merged into the
+  combo. Only metrics that are actually meaningful per-replicate are
+  duplicated here: read length distribution, nucleotide frequency,
+  autocorrelation, and tag directory stats. Rendered as a compact grid (one
+  small panel per replicate) rather than one crowded overlay, so it scales
+  to samples with many replicates.
+
 ## Typical execution
 
 ```bash
