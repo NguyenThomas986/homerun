@@ -15,7 +15,7 @@ log message rather than failing the pipeline, the same way 'stability' skips
 without total RNA.
 
 Per-replicate intermediates and the one-row result land in each replicate's
-own Species/Sample/<assay_rep>/RITRIE/. Per-sample results are aggregated
+own Species/Sample/RITRIE/. Per-sample results are aggregated
 into Species/Sample/QC/ritrie_summary.tsv (+ ritrie.png), so they show up in
 that sample's qc_report.html automatically. The parsed-GTF-exons file is
 built once per species (from that species' --gtf) and cached at
