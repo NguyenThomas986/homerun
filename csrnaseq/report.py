@@ -74,9 +74,18 @@ _IMG_ORDER_PER_REPLICATE = [
     "nucleotide_frequency_per_replicate",
     "autocorrelation_per_replicate",
     "tagdir_stats_per_replicate",
+    "replicate_outlier_summary",
 ]
 
 _PER_REPLICATE_STEMS = frozenset(_IMG_ORDER_PER_REPLICATE)
+
+# Trim/alignment tool log summaries get their own section, rendered FIRST
+# (above Sample-Level QC) — this is the "what actually happened during
+# trim/align" answer, so it's the first thing in the report rather than
+# buried after everything else.
+_IMG_ORDER_LOGS = ["trim_stats_summary", "alignment_stats_summary"]
+
+_LOG_STEMS = frozenset(_IMG_ORDER_LOGS)
 
 # key: filename stem prefix (matched with startswith) -> (source, short description)
 _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
@@ -169,6 +178,24 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "poor median-tags-per-position on one replicate is visible here "
         "even though it would be averaged away once merged into the combo.",
     ),
+    "replicate_outlier_summary": (
+        "tagInfo.txt / tagLengthDistribution.txt / tagAutocorrelation.txt "
+        "(each individual leaf TagDir)",
+        "Cross-metric outlier ranking (total tags, median tags/position, GC "
+        "content, read length, autocorrelation peak) — a fast first pass at "
+        "which replicate(s) are worth a closer look, not a definitive verdict.",
+    ),
+    "trim_stats_summary": (
+        "homerTools .lengths / skewer -trimmed.log (each replicate's Trimmed/)",
+        "Input reads and % removed per replicate — adapter-dimer rate for "
+        "homerTools (csRNA/sRNA), best-effort parse for skewer (totalRNA); "
+        "see the raw log in Data Files below if a skewer row looks off.",
+    ),
+    "alignment_stats_summary": (
+        "STAR Log.final.out / hisat2 _mappingstats.txt (each replicate's Aligned/)",
+        "Input reads and the uniquely-mapped / multi-mapped / unmapped "
+        "breakdown per replicate, whichever aligner actually ran.",
+    ),
     "ritrie": (
         "RITRIE/ritrie.tsv (per csRNA replicate)",
         "Higher RIT/RIE values generally indicate stronger enrichment of "
@@ -260,16 +287,21 @@ def _render_img_grid(imgs: list[Path], heading: str, note: str = "") -> str:
 def _build_qc_html(species: str, sample: str, qc_dir: Path, now: str) -> str:
     all_imgs = [f for f in qc_dir.glob("*.png") if f.is_file()]
 
-    # Per-replicate images (from individual leaf TagDirs) get their own
-    # section, separate from sample-level images (from the combined/-combo
-    # TagDirs) — sorted independently against each one's own order list, so
-    # the two sections never interleave regardless of matching filenames.
+    # Three sections, sorted independently against their own order list so
+    # they never interleave: pipeline logs (first), sample-level (from the
+    # combined/-combo TagDirs), per-replicate (from each individual leaf
+    # TagDir).
+    log_imgs = sorted(
+        (f for f in all_imgs if f.stem in _LOG_STEMS),
+        key=lambda f: _img_sort_key(f.name, _IMG_ORDER_LOGS),
+    )
     per_rep_imgs = sorted(
         (f for f in all_imgs if f.stem in _PER_REPLICATE_STEMS),
         key=lambda f: _img_sort_key(f.name, _IMG_ORDER_PER_REPLICATE),
     )
     sample_imgs = sorted(
-        (f for f in all_imgs if f.stem not in _PER_REPLICATE_STEMS),
+        (f for f in all_imgs
+        if f.stem not in _PER_REPLICATE_STEMS and f.stem not in _LOG_STEMS),
         key=lambda f: _img_sort_key(f.name, _IMG_ORDER),
     )
 
@@ -278,7 +310,12 @@ def _build_qc_html(species: str, sample: str, qc_dir: Path, now: str) -> str:
         if f.is_file() and f.suffix in (".txt", ".tsv", ".csv")
     )
 
-    img_section = _render_img_grid(sample_imgs, "Sample-Level QC")
+    img_section = _render_img_grid(
+        log_imgs, "Pipeline Logs",
+        note=("Trim and alignment tool summaries, straight from each replicate's "
+              "own log file — raw logs are in Data Files below."),
+    )
+    img_section += _render_img_grid(sample_imgs, "Sample-Level QC")
     img_section += _render_img_grid(
         per_rep_imgs, "Per-Replicate QC",
         note=("Generated from each individual replicate's own TagDir, not the "
