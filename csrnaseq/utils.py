@@ -192,28 +192,28 @@ def seq_type(name: str) -> str | None:
 
 
 def leaf_dir(r1: Path) -> Path:
-    """Given an R1 fastq Path at .../Species/Sample/<assay>/RawData/<file>,
-    return the <assay> directory itself (.../Species/Sample/<assay>/).
+    """Given an R1 fastq Path at .../Species/Sample/RawData/<file>, return
+    the Sample directory itself (.../Species/Sample/).
 
     Despite the name (kept for compatibility with existing call sites),
-    this returns the ASSAY directory, not a per-replicate one: RawData/
-    Trimmed/Aligned are shared across every replicate of one assay (only
-    TagDirs/bedGraphs/RITRIE still nest one folder per replicate — see
-    Config.leaf_tagdir/leaf_bedgraph/leaf_ritrie). trim.py/mapping.py build
-    '<this> / "Trimmed"' and '<this> / "Aligned"', which is exactly right
-    either way — a replicate's outputs land next to its own RawData/, they
-    just now share that directory with every other replicate of the same
-    assay instead of getting one of their own.
+    this returns the SAMPLE directory, not a per-replicate or per-assay one:
+    RawData/Trimmed/Aligned are shared across every replicate of EVERY assay
+    within a sample (only TagDirs/bedGraphs/RITRIE still nest one folder per
+    replicate — see Config.leaf_tagdir/leaf_bedgraph/leaf_ritrie).
+    trim.py/mapping.py build '<this> / "Trimmed"' and '<this> / "Aligned"',
+    which is exactly right — a replicate's outputs land next to its own
+    RawData/, they just now share that directory with every other
+    replicate/assay of the same sample instead of getting one of their own.
     """
     return r1.parent.parent
 
 
 def list_r1(cfg):
-    """Sorted list of R1 FASTQs under every nested Species/Sample/<leaf>/RawData/ —
+    """Sorted list of R1 FASTQs under every Species/Sample/RawData/ —
     the unit of array parallelism. The array task index maps 1:1 to this
     (deterministic) ordering."""
     return sorted(
-        p for p in cfg.project.glob("*/*/*/RawData/*_R1*")
+        p for p in cfg.project.glob("*/*/RawData/*_R1*")
         if p.name.endswith(".fastq") or p.name.endswith(".fastq.gz")
     )
 
@@ -244,12 +244,13 @@ def replicate_of_leaf(leaf_name: str) -> str | None:
 
 def iter_leaf_dirs(cfg):
     """Yield (species, sample, leaf_name, r1_path) for every R1 FASTQ under
-    every nested Species/Sample/<assay>/RawData/ — the same set list_r1()
-    draws from, but with each replicate's identity attached.
+    every Species/Sample/RawData/ — the same set list_r1() draws from, but
+    with each replicate's identity attached.
 
-    Individual replicates no longer get their own directory (RawData/
-    Trimmed/Aligned are shared per assay, not per replicate — see
-    Config.assay_dir), so 'which replicate is this' can't be read off
+    Individual replicates no longer get their own directory, nor even a
+    per-assay one (RawData/Trimmed/Aligned are shared by every replicate of
+    every assay in a sample — see Config.rawdata_dir/trimmed_dir/
+    aligned_dir), so 'which replicate/assay is this' can't be read off
     directory structure anymore; it's recovered from the FILENAME via
     parse_sample_name(), the same parser prepare.py already trusted to
     stage the file correctly in the first place. Used by steps that key off

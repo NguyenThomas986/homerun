@@ -1,7 +1,9 @@
 """Preparation: create folders, stage loose FASTQs, copy raw FASTQs, ensure STARIndex exists.
 
-FASTQs always land under the nested Species/Sample/<assay_rep>/RawData/ layout
-(see Config.run_dir / utils.parse_sample_name) — there is no flat fallback.
+FASTQs always land under the flat Species/Sample/RawData/ layout (shared by
+every assay and replicate of that sample — see Config.rawdata_dir /
+utils.parse_sample_name) — there is no per-assay subfolder and no
+project-level fallback.
 """
 from __future__ import annotations
 import dataclasses
@@ -9,7 +11,7 @@ import glob
 import shutil
 from datetime import datetime
 from pathlib import Path
-from .utils import run, log, parse_sample_name, assay_of_leaf, list_samples
+from .utils import run, log, parse_sample_name, list_samples
 
 def setup_dirs(cfg) -> None:
     # Only the project-wide logs/ dir is created up front; per-sample
@@ -22,13 +24,12 @@ def setup_dirs(cfg) -> None:
     log.info("  %s  %s", "exists " if existed else "CREATED", d)
 
 def _stage_one(cfg, src: Path) -> None:
-    """Parse src's filename and move/copy it into its assay's shared RawData/ dir
-    (Species/Sample/<assay>/RawData/ — shared across every replicate of that
-    assay, not one folder per replicate; the filename itself still uniquely
-    identifies the replicate downstream)."""
-    species, sample, leaf = parse_sample_name(src.name)
-    assay = assay_of_leaf(leaf)
-    dst_dir = cfg.assay_rawdata(species, sample, assay)
+    """Parse src's filename and move/copy it into the sample's shared RawData/
+    dir (Species/Sample/RawData/ — shared across every replicate of every
+    assay in that sample, not one folder per assay or per replicate; the
+    filename itself still uniquely identifies both downstream)."""
+    species, sample, _leaf = parse_sample_name(src.name)
+    dst_dir = cfg.rawdata_dir(species, sample)
     dst_dir.mkdir(parents=True, exist_ok=True)
     dst = dst_dir / src.name
     if dst.exists():
@@ -55,12 +56,11 @@ def copy_raw(cfg) -> None:
         return
     for src in matches:
         try:
-            species, sample, leaf = parse_sample_name(src.name)
+            species, sample, _leaf = parse_sample_name(src.name)
         except ValueError as exc:
             log.warning("copy_raw: skipping %s (%s)", src.name, exc)
             continue
-        assay = assay_of_leaf(leaf)
-        dst_dir = cfg.assay_rawdata(species, sample, assay)
+        dst_dir = cfg.rawdata_dir(species, sample)
         dst_dir.mkdir(parents=True, exist_ok=True)
         dst = dst_dir / src.name
         if dst.exists():
@@ -70,7 +70,7 @@ def copy_raw(cfg) -> None:
 
 def stage_loose_fastqs(cfg) -> None:
     """Move loose *_R1*/*_R2* FASTQs sitting in the project ROOT into their
-    nested Species/Sample/<assay_rep>/RawData/ dir.
+    Species/Sample/RawData/ dir.
 
     Non-recursive (only the project root is scanned, never subdirs), so files
     already staged are untouched. If a same-named file already exists at the
@@ -159,7 +159,7 @@ def write_config_summary(cfg) -> None:
             lines.append(f"{species}/{sample}")
  
     lines += ["", "[RawData]"]
-    raw_files = sorted(p for p in cfg.project.glob("*/*/*/RawData/*") if p.is_file())
+    raw_files = sorted(p for p in cfg.project.glob("*/*/RawData/*") if p.is_file())
     if not raw_files:
         lines.append("(none staged yet)")
     else:
