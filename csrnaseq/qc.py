@@ -625,6 +625,238 @@ def _autocorrelation_heatmap(leaves, qc_dir) -> None:
              len(leaves), n_out)
 
 
+# ── Trim / alignment tool logs (NEW) ──────────────────────────────────────────
+# These files already exist on disk as a byproduct of trim.py/mapping.py —
+# homerTools' .lengths, skewer's -trimmed.log, STAR's Log.final.out, and
+# hisat2's _mappingstats.txt — this only reads and summarizes them; it
+# doesn't change how trimming/alignment run. Raw copies are preserved under
+# QC/ (picked up automatically by report.py's existing raw-text renderer)
+# alongside a compact per-replicate summary table.
+
+def _copy_raw_log(src, qc_dir, dest_name: str) -> None:
+    """Copy a raw tool log into qc_dir under a .txt-suffixed name so it's
+    picked up automatically by report.py's Data Files section, which only
+    scans qc_dir's own top-level *.txt/*.tsv/*.csv files."""
+    import shutil as _shutil
+    try:
+        _shutil.copy2(src, qc_dir / dest_name)
+    except Exception as exc:
+        log.warning("QC logs: could not copy %s: %s", src, exc)
+
+
+def _parse_homer_lengths(path):
+    """homerTools trim's <r1>.lengths: a plain 3-col TSV (Length, # reads,
+    Fraction). High-confidence format. Returns (total_reads, dimer_pct,
+    avg_length_of_nonzero_reads), or (None, None, None) if unreadable/empty.
+    dimer_pct is computed from the read counts directly (length==0 row),
+    not trusted from HOMER's own '%'-string Fraction column."""
+    try:
+        df = pd.read_csv(path, sep="\t")
+    except Exception as exc:
+        log.warning("QC logs: could not read %s: %s", path, exc)
+        return None, None, None
+    if df.shape[1] < 2 or df.empty:
+        return None, None, None
+    length_col, reads_col = df.columns[0], df.columns[1]
+    total = df[reads_col].sum()
+    if total <= 0:
+        return None, None, None
+    dimer = df.loc[df[length_col] == 0, reads_col].sum()
+    dimer_pct = 100.0 * dimer / total
+    nonzero = df[df[length_col] != 0]
+    avg_len = (float(np.average(nonzero[length_col], weights=nonzero[reads_col]))
+              if nonzero[reads_col].sum() > 0 else float("nan"))
+    return int(total), dimer_pct, avg_len
+
+
+def _parse_skewer_log(path):
+    """skewer's <prefix>-trimmed.log. Format not independently verified
+    against a real skewer run, so this is deliberately defensive: try a
+    couple of plausible label patterns and return None for whatever doesn't
+    match rather than risk silently mis-parsing — the raw log is always
+    copied into QC/ regardless (see _copy_raw_log), so nothing is lost
+    even when parsing comes up empty."""
+    import re
+    try:
+        txt = path.read_text(errors="replace")
+    except Exception as exc:
+        log.warning("QC logs: could not read %s: %s", path, exc)
+        return None, None
+    total = None
+    m = re.search(r"([\d,]+)\s+reads?\s*(?:pairs?)?\s+processed", txt, re.I)
+    if m:
+        total = int(m.group(1).replace(",", ""))
+    avail_pct = None
+    m = re.search(r"([\d.]+)\s*%\)?\s+(?:reads?|pairs?)\s+available", txt, re.I)
+    if m:
+        avail_pct = float(m.group(1))
+    return total, avail_pct
+
+
+def _parse_star_log(path) -> dict:
+    """STAR's <prefix>.Log.final.out — a stable, well-documented 'label |
+    value' format. High confidence."""
+    import re
+    try:
+        txt = path.read_text(errors="replace")
+    except Exception as exc:
+        log.warning("QC logs: could not read %s: %s", path, exc)
+        return {}
+    patterns = {
+        "Input Reads":            (r"Number of input reads \|\s+(\d+)", int),
+        "Uniquely Mapped %":      (r"Uniquely mapped reads % \|\s+([\d.]+)%", float),
+        "Multi-Mapped %":         (r"% of reads mapped to multiple loci \|\s+([\d.]+)%", float),
+        "Too-Many-Loci %":        (r"% of reads mapped to too many loci \|\s+([\d.]+)%", float),
+        "Unmapped (mismatch) %":  (r"% of reads unmapped: too many mismatches \|\s+([\d.]+)%", float),
+        "Unmapped (short) %":     (r"% of reads unmapped: too short \|\s+([\d.]+)%", float),
+        "Unmapped (other) %":     (r"% of reads unmapped: other \|\s+([\d.]+)%", float),
+    }
+    out = {}
+    for key, (pattern, cast) in patterns.items():
+        m = re.search(pattern, txt)
+        if m:
+            out[key] = cast(m.group(1))
+    return out
+
+
+def _parse_hisat2_stats(path) -> dict:
+    """hisat2's <prefix>_mappingstats.txt (its own stderr, already captured
+    by mapping.py's `-S ... 2> {stats}` redirect) — the standard,
+    well-documented hisat2 summary format. High confidence."""
+    import re
+    try:
+        txt = path.read_text(errors="replace")
+    except Exception as exc:
+        log.warning("QC logs: could not read %s: %s", path, exc)
+        return {}
+    out = {}
+    m = re.search(r"(\d+)\s+reads?;\s+of these", txt)
+    if m:
+        out["Input Reads"] = int(m.group(1))
+    m = re.search(r"([\d.]+)\s*%\)\s+aligned 0 times", txt)
+    if m:
+        out["Unmapped %"] = float(m.group(1))
+    m = re.search(r"([\d.]+)\s*%\)\s+aligned exactly 1 time", txt)
+    if m:
+        out["Uniquely Mapped %"] = float(m.group(1))
+    m = re.search(r"([\d.]+)\s*%\)\s+aligned >1 times", txt)
+    if m:
+        out["Multi-Mapped %"] = float(m.group(1))
+    m = re.search(r"([\d.]+)\s*%\s+overall alignment rate", txt)
+    if m:
+        out["Overall Aligned %"] = float(m.group(1))
+    return out
+
+
+def _render_log_table(df: pd.DataFrame, title: str, out_path) -> None:
+    """Row-per-replicate table (same vertical-growth orientation as the
+    per-replicate tagdir-stats table) so it stays readable/scrollable even
+    with hundreds of replicates, instead of becoming absurdly wide."""
+    fig, ax = plt.subplots(figsize=(max(8, 1.3 * len(df.columns)),
+                                    max(3, 0.35 * len(df) + 1.5)))
+    ax.axis("off")
+    tbl = ax.table(cellText=df.values, rowLabels=df.index,
+                   colLabels=df.columns, cellLoc="center", loc="center")
+    tbl.auto_set_font_size(False); tbl.set_fontsize(9)
+    tbl.auto_set_column_width(col=list(range(len(df.columns) + 1)))
+    plt.title(title, fontsize=11, pad=10)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150, bbox_inches="tight"); plt.close()
+
+
+def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
+    """Trim/alignment tool logs, one row per replicate, covering whichever
+    tools actually ran: homerTools trim (csRNA/sRNA) or skewer (totalRNA)
+    for trimming; STAR or hisat2 for alignment. Writes two summary tables
+    (trim_stats_summary.png, alignment_stats_summary.png) plus a raw copy of
+    every underlying log file (picked up automatically by the Data Files
+    section)."""
+    leaves = _leaf_tagdirs_for_sample(cfg, species, sample)
+    if not leaves:
+        log.info("QC trim/align logs: no replicates for %s/%s", species, sample)
+        return
+
+    r1_by_leaf = {ln: r1 for sp, sa, ln, r1 in iter_leaf_dirs(cfg)
+                  if sp == species and sa == sample}
+
+    trim_rows, align_rows = [], []
+    for leaf_name, _tagdir in leaves:
+        r1 = r1_by_leaf.get(leaf_name)
+        assay = assay_of_leaf(leaf_name)
+        if r1 is None or assay is None:
+            continue
+        trimmed_dir = cfg.assay_trimmed(species, sample, assay)
+        aligned_dir = cfg.assay_aligned(species, sample, assay)
+        prefix = r1.name.split("_R1")[0]
+
+        # ── trimming ──
+        if assay == "totalRNA":
+            skewer_log = trimmed_dir / f"{prefix}-trimmed.log"
+            if skewer_log.exists():
+                _copy_raw_log(skewer_log, qc_dir, f"{leaf_name}-trimmed.log.txt")
+                total, avail_pct = _parse_skewer_log(skewer_log)
+                trim_rows.append({
+                    "Replicate": leaf_name, "Tool": "skewer",
+                    "Input Reads": total if total is not None else "NA",
+                    "% Retained": avail_pct if avail_pct is not None else "NA",
+                    "% Removed": (round(100 - avail_pct, 2)
+                                 if avail_pct is not None else "NA"),
+                })
+        else:
+            lengths_file = trimmed_dir / f"{r1.name}.lengths"
+            if lengths_file.exists():
+                _copy_raw_log(lengths_file, qc_dir, f"{leaf_name}.lengths.txt")
+                total, dimer_pct, _avg_len = _parse_homer_lengths(lengths_file)
+                if total is not None:
+                    trim_rows.append({
+                        "Replicate": leaf_name, "Tool": "homerTools",
+                        "Input Reads": total,
+                        "% Retained": round(100 - dimer_pct, 2),
+                        "% Removed": round(dimer_pct, 2),
+                    })
+
+        # ── alignment ──
+        star_log = aligned_dir / f"{prefix}.Log.final.out"
+        hisat_log = aligned_dir / f"{prefix}_mappingstats.txt"
+        if star_log.exists():
+            _copy_raw_log(star_log, qc_dir, f"{leaf_name}.Log.final.out.txt")
+            f = _parse_star_log(star_log)
+            if f:
+                unmapped = [f[k] for k in f if k.startswith("Unmapped") and f[k] is not None]
+                align_rows.append({
+                    "Replicate": leaf_name, "Tool": "STAR",
+                    "Input Reads": f.get("Input Reads", "NA"),
+                    "Uniquely Mapped %": f.get("Uniquely Mapped %", "NA"),
+                    "Multi-Mapped %": f.get("Multi-Mapped %", "NA"),
+                    "Unmapped %": round(sum(unmapped), 2) if unmapped else "NA",
+                })
+        elif hisat_log.exists():
+            _copy_raw_log(hisat_log, qc_dir, f"{leaf_name}_mappingstats.txt")
+            f = _parse_hisat2_stats(hisat_log)
+            if f:
+                align_rows.append({
+                    "Replicate": leaf_name, "Tool": "hisat2",
+                    "Input Reads": f.get("Input Reads", "NA"),
+                    "Uniquely Mapped %": f.get("Uniquely Mapped %", "NA"),
+                    "Multi-Mapped %": f.get("Multi-Mapped %", "NA"),
+                    "Unmapped %": f.get("Unmapped %", "NA"),
+                })
+
+    if trim_rows:
+        _render_log_table(pd.DataFrame(trim_rows).set_index("Replicate"),
+                          "Trim Summary", qc_dir / "trim_stats_summary.png")
+        log.info("QC: trim_stats_summary.png (%d replicate(s))", len(trim_rows))
+    else:
+        log.info("QC trim summary: no trim logs found for %s/%s", species, sample)
+
+    if align_rows:
+        _render_log_table(pd.DataFrame(align_rows).set_index("Replicate"),
+                          "Alignment Summary", qc_dir / "alignment_stats_summary.png")
+        log.info("QC: alignment_stats_summary.png (%d replicate(s))", len(align_rows))
+    else:
+        log.info("QC alignment summary: no alignment logs found for %s/%s", species, sample)
+
+
 # ── Cross-metric replicate outlier ranking (NEW) ──────────────────────────────
 
 def qc_replicate_outlier_summary(cfg, species, sample, qc_dir) -> None:
@@ -758,6 +990,9 @@ def qc_distal_proximal_pie(cfg, species, sample, qc_dir) -> None:
 def _run_qc_one(cfg, species, sample) -> None:
     qc_dir = cfg.sample_qc(species, sample)
     qc_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── Pipeline logs (trim/align tool output) — new, rendered first ────────
+    qc_trim_align_summary(cfg, species, sample, qc_dir)
 
     # ── Sample-level QC (from combined/-combo TagDirs) — unchanged ──────────
     qc_read_length(cfg, species, sample, qc_dir)
