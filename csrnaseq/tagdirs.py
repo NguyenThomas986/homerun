@@ -13,15 +13,16 @@ run in parallel across a SLURM array:
                                               replicate's raw SAM files per
                                               assay into a combo TagDir.
 
-Built under Species/Sample/<assay>/TagDirs/:
-  • Species/Sample/<assay>/TagDirs/<assay>-combo  — all replicates of that assay merged
-  • Species/Sample/<assay>/TagDirs/<leaf_name>     — one tag dir per individual replicate
+Built under Species/Sample/TagDirs/ (all assays of a sample together):
+  • Species/Sample/TagDirs/<assay>-combo  — all replicates of that assay merged
+  • Species/Sample/TagDirs/<leaf_name>     — one tag dir per individual replicate
 
 Both are built from the same aligned SAM files, which live in the shared
-Species/Sample/<assay>/Aligned/ (one folder per assay, not per replicate —
-see Config.assay_aligned). Since replicates no longer get their own
-directory, a replicate's SAM is located by filename prefix rather than by
-listing an Aligned/ folder that belongs to just that one replicate.
+Species/Sample/Aligned/ (one folder per sample, not per assay or per
+replicate — see Config.aligned_dir). Since replicates (and assays) no longer
+get their own directory, a replicate's SAM is located by filename prefix
+rather than by listing an Aligned/ folder that belongs to just that one
+replicate.
 
 The combo build does NOT depend on the leaf TagDirs existing — it merges the
 raw SAM files directly — so run_combo_tagdirs only needs the align phase to
@@ -48,12 +49,12 @@ def _make_tagdir(cmd_input_sams: str, tagdir, assay: str, label: str, cfg) -> No
     run(cmd, label=label)
 
 
-def _sam_for_r1(cfg, species, sample, assay, r1):
+def _sam_for_r1(cfg, species, sample, r1):
     """The aligned SAM this replicate's R1 produced, in the shared
-    Species/Sample/<assay>/Aligned/ folder — same naming mapping.py already
+    Species/Sample/Aligned/ folder — same naming mapping.py already
     uses (<prefix>.Aligned.out.sam where prefix = r1.name up to '_R1')."""
     prefix = r1.name.split("_R1")[0]
-    return cfg.assay_aligned(species, sample, assay) / f"{prefix}.Aligned.out.sam"
+    return cfg.aligned_dir(species, sample) / f"{prefix}.Aligned.out.sam"
 
 
 def _leaf_tagdir_for_r1(cfg, r1) -> None:
@@ -63,7 +64,7 @@ def _leaf_tagdir_for_r1(cfg, r1) -> None:
         log.warning("tagdir: could not classify assay for %s", r1.name)
         return
 
-    sam = _sam_for_r1(cfg, species, sample, assay, r1)
+    sam = _sam_for_r1(cfg, species, sample, r1)
     if not sam.exists():
         log.warning("tagdir: no aligned SAM yet for %s/%s/%s (run 'align' first)",
                     species, sample, leaf_name)
@@ -114,7 +115,7 @@ def run_combo_tagdirs(cfg, group=None) -> None:
             continue
         expected_leaves[(species, sample, assay)] += 1
 
-        sam = _sam_for_r1(cfg, species, sample, assay, r1)
+        sam = _sam_for_r1(cfg, species, sample, r1)
         if not sam.exists():
             log.warning("tagdir-combo: no aligned SAM for %s/%s/%s — this replicate "
                         "will be MISSING from the combo TagDir (check align logs).",
