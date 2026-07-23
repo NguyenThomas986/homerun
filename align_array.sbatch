@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=csrna_align
 #SBATCH --time=8:00:00
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=64G
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=32G
 # Phase 1: one task per sample — trim + align for RawData R1 #SLURM_ARRAY_TASK_ID.
 set -euo pipefail
 

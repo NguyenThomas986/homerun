@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=csrna_tss
 #SBATCH --time=4:00:00
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=32G
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=6 --mem=8G
 # Phase 6: one task per Species/Sample — call TSRs with findcsRNATSS.pl for
 # that one Species/Sample. Indexed by --group-index into
 # utils.list_samples(cfg). Needs tagdirs_combo_array (csRNA-combo/sRNA-combo/

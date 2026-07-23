@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=csrna_tagdircombo
 #SBATCH --time=4:00:00
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=32G
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=5GB
 # Phase 3: one task per Species/Sample — build that sample's combo TagDir(s)
 # (one per assay: csRNA-combo, sRNA-combo, totalRNA-combo). Indexed by
 # --group-index into utils.list_samples(cfg), NOT by R1 file — a different

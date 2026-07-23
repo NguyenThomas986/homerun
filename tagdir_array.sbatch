@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=csrna_tagdir
 #SBATCH --time=4:00:00
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=32G
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=5GB
 # Phase 2: one task per sample — build ONE leaf TagDir for RawData R1 #SLURM_ARRAY_TASK_ID.
 # Same indexing as align_array.sbatch (one R1 file = one leaf run), so task N
 # here builds the TagDir for the SAM file task N of align_array produced.

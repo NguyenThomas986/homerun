@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=csrna_bedgraphs
 #SBATCH --time=2:00:00
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=16G
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=1GB
 # Phase 5: one task per Species/Sample — build bedGraphs for every TagDir
 # (leaf AND combo) under that one Species/Sample. Indexed by --group-index
 # into utils.list_samples(cfg). Needs BOTH tagdir_array (leaf TagDirs) and
