@@ -49,8 +49,8 @@ def _all_combos(cfg, species, sample):
 
 def _label(d) -> str:
     """Readable name for a TagDir, e.g. 'csRNA-combo' or 'csRNA_r1'. The tag
-    directory itself is named that (Species/Sample/<assay>/TagDirs/<name>),
-    not nested one level further under a generic 'TagDir' folder."""
+    directory itself is named that (Species/Sample/TagDirs/<name>), not
+    nested one level further under a generic 'TagDir' folder."""
     return d.name
 
 
@@ -785,8 +785,8 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
         assay = assay_of_leaf(leaf_name)
         if r1 is None or assay is None:
             continue
-        trimmed_dir = cfg.assay_trimmed(species, sample, assay)
-        aligned_dir = cfg.assay_aligned(species, sample, assay)
+        trimmed_dir = cfg.trimmed_dir(species, sample)
+        aligned_dir = cfg.aligned_dir(species, sample)
         prefix = r1.name.split("_R1")[0]
 
         # ── trimming ──
