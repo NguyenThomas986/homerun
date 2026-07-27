@@ -74,7 +74,6 @@ _IMG_ORDER_PER_REPLICATE = [
     "nucleotide_frequency_per_replicate",
     "autocorrelation_per_replicate",
     "tagdir_stats_per_replicate",
-    "replicate_outlier_summary",
 ]
 
 _PER_REPLICATE_STEMS = frozenset(_IMG_ORDER_PER_REPLICATE)
@@ -177,13 +176,6 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "individual replicate — a low tag count, unusual GC content, or "
         "poor median-tags-per-position on one replicate is visible here "
         "even though it would be averaged away once merged into the combo.",
-    ),
-    "replicate_outlier_summary": (
-        "tagInfo.txt / tagLengthDistribution.txt / tagAutocorrelation.txt "
-        "(each individual leaf TagDir)",
-        "Cross-metric outlier ranking (total tags, median tags/position, GC "
-        "content, read length, autocorrelation peak) — a fast first pass at "
-        "which replicate(s) are worth a closer look, not a definitive verdict.",
     ),
     "trim_stats_summary": (
         "homerTools .lengths / skewer -trimmed.log (each replicate's Trimmed/)",
