@@ -6,6 +6,7 @@ flat project-level QC/ mixing every sample together.
 """
 from __future__ import annotations
 
+import math
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt  # noqa: E402
@@ -20,19 +21,20 @@ _ASSAYS = ("csRNA", "sRNA", "totalRNA")
 _ASSAY_COLORS = {"csRNA": "#2c7fb8", "sRNA": "#de7c00", "totalRNA": "#636363"}
 
 
-def _outlier_mask(values: pd.Series, thresh: float = 3.5) -> pd.Series:
-    """Robust (median-absolute-deviation based) outlier flag — the modified
-    z-score of Iglewicz & Hoaglin, thresh=3.5 is their standard recommended
-    cutoff. Used instead of a plain mean/stdev z-score because a single
-    genuinely bad replicate can otherwise skew the mean enough to hide
-    itself; MAD is far less sensitive to the outlier it's trying to detect.
-    """
-    med = values.median()
-    mad = (values - med).abs().median()
-    if mad == 0:
-        return pd.Series(False, index=values.index)
-    mz = 0.6745 * (values - med) / mad
-    return mz.abs() > thresh
+def _replicate_grid(n: int, ncols: int = 4):
+    """Fixed-grid figure/axes for one small subplot per replicate (used by
+    the per-replicate read-length/nucleotide-frequency/autocorrelation
+    plots), instead of a single heatmap — this keeps each replicate's full
+    curve visible and scales to any number of replicates by adding more
+    rows, wrapping at `ncols` columns per row. Unused axes (when n isn't a
+    multiple of ncols) are hidden rather than left blank/empty-looking."""
+    ncols = min(ncols, n)
+    nrows = math.ceil(n / ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(3.4 * ncols, 2.8 * nrows), squeeze=False)
+    flat = axes.flat
+    for ax in list(flat)[n:]:
+        ax.axis("off")
+    return fig, axes
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -489,47 +491,30 @@ def qc_read_length_per_replicate(cfg, species, sample, qc_dir) -> None:
     if not leaves:
         log.info("QC read-length (per-replicate): no tagLengthDistribution.txt yet.")
         return
-    _read_length_heatmap(leaves, qc_dir)
+    _read_length_grid(leaves, qc_dir)
 
 
-def _read_length_heatmap(leaves, qc_dir) -> None:
-    """Length-distribution SHAPE as one heatmap (rows=replicate, cols=length,
-    assay-grouped/sorted) plus a weighted-average-length bar with MAD-based
-    outliers flagged in red."""
-    matrix, avg_len = {}, {}
-    for leaf_name, d in leaves:
+def _read_length_grid(leaves, qc_dir) -> None:
+    """One read-length-distribution line plot per replicate, laid out in a
+    fixed grid (wraps at 4 columns) instead of a single heatmap — each
+    replicate keeps its own fully visible curve, same as the sample-level
+    read_length_distribution.png but split one-subplot-per-replicate."""
+    n = len(leaves)
+    fig, axes = _replicate_grid(n)
+    for ax, (leaf_name, d) in zip(axes.flat, leaves):
         df = pd.read_csv(d / "tagLengthDistribution.txt", sep="\t", index_col=0)
-        frac = df.iloc[:, 0]
-        matrix[leaf_name] = frac
-        w = frac.to_numpy()
-        avg_len[leaf_name] = float(np.average(frac.index.to_numpy(), weights=w)) if w.sum() > 0 else np.nan
+        ax.plot(df.index, df.iloc[:, 0], color="steelblue", linewidth=1.2)
+        ax.set_title(leaf_name, fontsize=9)
+        ax.tick_params(labelsize=7)
 
-    order = [n for n, _ in leaves]
-    hm = pd.DataFrame(matrix).T.reindex(order)
-    lens = pd.Series(avg_len).reindex(order).dropna()
-    outliers = _outlier_mask(lens) if len(lens) > 2 else pd.Series(False, index=lens.index)
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, max(4, 0.3 * len(hm) + 1)),
-                                   gridspec_kw={"width_ratios": [3, 1]})
-    sns.heatmap(hm, cmap="viridis", ax=ax1, cbar_kws={"label": "Fraction of reads"})
-    ax1.set_xlabel("Read length (nt)"); ax1.set_ylabel("")
-    ax1.set_title(f"Read length distribution — {len(hm)} replicate(s)")
-    ax1.tick_params(labelsize=7)
-
-    colors = ["#de2d26" if outliers.get(n, False) else "#2c7fb8" for n in lens.index]
-    ax2.barh(lens.index, lens.values, color=colors)
-    ax2.invert_yaxis()
-    ax2.set_xlabel("Weighted-avg length (nt)")
-    ax2.set_title("Outliers in red")
-    ax2.tick_params(labelsize=7)
-
+    fig.supxlabel("Read length (nt)")
+    fig.supylabel("Fraction of reads")
+    fig.suptitle(f"Read length distribution — {n} replicate(s)")
     plt.tight_layout()
     plt.savefig(qc_dir / "read_length_distribution_per_replicate.png",
                dpi=150, bbox_inches="tight")
     plt.close()
-    n_out = int(outliers.sum())
-    log.info("QC: read_length_distribution_per_replicate.png (%d replicate(s), %d outlier(s))",
-             len(leaves), n_out)
+    log.info("QC: read_length_distribution_per_replicate.png (%d replicate(s), grid)", n)
 
 
 def qc_nucleotide_freq_per_replicate(cfg, species, sample, qc_dir) -> None:
@@ -538,37 +523,34 @@ def qc_nucleotide_freq_per_replicate(cfg, species, sample, qc_dir) -> None:
     if not leaves:
         log.info("QC nt-freq (per-replicate): no tagFreqUniq.txt yet.")
         return
-    _nucleotide_freq_heatmap(leaves, qc_dir)
+    _nucleotide_freq_grid(leaves, qc_dir)
 
 
-def _nucleotide_freq_heatmap(leaves, qc_dir) -> None:
-    """Heatmap of A-content near the read start (the primary csRNA/sRNA QC
-    signal — enrichment right at the TSS), one row per replicate."""
-    rows = {}
-    for leaf_name, d in leaves:
+def _nucleotide_freq_grid(leaves, qc_dir) -> None:
+    """One nucleotide-frequency line plot (A/C/G/T) per replicate, laid out
+    in a fixed grid instead of a single A-content-only heatmap — same
+    all-4-nucleotide lines as the sample-level nucleotide_frequency.png,
+    split one-subplot-per-replicate."""
+    n = len(leaves)
+    fig, axes = _replicate_grid(n)
+    for i, (ax, (leaf_name, d)) in enumerate(zip(axes.flat, leaves)):
         df = pd.read_csv(d / "tagFreqUniq.txt", index_col=0, sep="\t")
-        if "A" in df.columns:
-            rows[leaf_name] = df["A"]
-    if not rows:
-        log.info("QC nt-freq (per-replicate): no 'A' column found — skipping.")
-        return
+        cols = [c for c in ("A", "C", "G", "T") if c in df.columns]
+        for col in cols:
+            ax.plot(df.index, df[col], label=col, linewidth=1)
+        ax.set_title(leaf_name, fontsize=9)
+        ax.tick_params(labelsize=7)
+        if i == 0 and cols:
+            ax.legend(fontsize=6, ncol=len(cols), loc="upper right")
 
-    order = [n for n, _ in leaves if n in rows]
-    hm = pd.DataFrame(rows).T.reindex(order)
-    window = [c for c in hm.columns if isinstance(c, (int, float)) and -20 <= c <= 20]
-    if window:
-        hm = hm[window]
-
-    plt.figure(figsize=(10, max(4, 0.3 * len(hm) + 1)))
-    sns.heatmap(hm, cmap="magma", cbar_kws={"label": "A frequency"})
-    plt.xlabel("Distance from 5' end of read"); plt.ylabel("")
-    plt.title(f"A-nucleotide frequency — {len(hm)} replicate(s)")
-    plt.yticks(fontsize=7)
+    fig.supxlabel("Distance from 5' end of read")
+    fig.supylabel("Nucleotide frequency")
+    fig.suptitle(f"Nucleotide frequency — {n} replicate(s)")
     plt.tight_layout()
     plt.savefig(qc_dir / "nucleotide_frequency_per_replicate.png",
                dpi=150, bbox_inches="tight")
     plt.close()
-    log.info("QC: nucleotide_frequency_per_replicate.png (%d replicate(s))", len(leaves))
+    log.info("QC: nucleotide_frequency_per_replicate.png (%d replicate(s), grid)", n)
 
 
 def qc_autocorrelation_per_replicate(cfg, species, sample, qc_dir) -> None:
@@ -577,52 +559,33 @@ def qc_autocorrelation_per_replicate(cfg, species, sample, qc_dir) -> None:
     if not leaves:
         log.info("QC autocorrelation (per-replicate): no tagAutocorrelation.txt yet.")
         return
-    _autocorrelation_heatmap(leaves, qc_dir)
+    _autocorrelation_grid(leaves, qc_dir)
 
 
-def _autocorrelation_heatmap(leaves, qc_dir) -> None:
-    """Heatmap of same-strand autocorrelation (rows=replicate, cols=offset,
-    a narrow window around 0) plus an offset-0 peak-height bar with
-    MAD-based outliers flagged in red — same layout as the read-length and
-    nucleotide-frequency heatmaps, for a consistent look at any scale."""
-    rows, peak = {}, {}
-    for leaf_name, d in leaves:
+def _autocorrelation_grid(leaves, qc_dir) -> None:
+    """One same-strand/opposite-strand autocorrelation line plot per
+    replicate, laid out in a fixed grid instead of a single heatmap — same
+    windowing as the sample-level autocorrelation.png, split
+    one-subplot-per-replicate."""
+    n = len(leaves)
+    fig, axes = _replicate_grid(n)
+    for i, (ax, (leaf_name, d)) in enumerate(zip(axes.flat, leaves)):
         df = pd.read_csv(d / "tagAutocorrelation.txt", sep="\t", index_col=0, header=0,
-                         names=["Same Strand", "Opposite Strand"])
-        window = df.loc[(df.index >= -200) & (df.index <= 200), "Same Strand"]
-        if not window.empty:
-            rows[leaf_name] = window
-        if 0 in df.index:
-            peak[leaf_name] = float(df.loc[0, "Same Strand"])
-    if not rows:
-        log.info("QC autocorrelation (per-replicate): no data in the +/-200 window — skipping.")
-        return
+                         names=["Same Strand", "Opposite Strand"]).iloc[1400:2601]
+        ax.plot(df.index, df["Same Strand"], label="Same Strand", linewidth=1)
+        ax.plot(df.index, df["Opposite Strand"], label="Opposite Strand", linewidth=1)
+        ax.set_title(leaf_name, fontsize=9)
+        ax.tick_params(labelsize=7)
+        if i == 0:
+            ax.legend(fontsize=6, loc="upper right")
 
-    order = [n for n, _ in leaves if n in rows]
-    hm = pd.DataFrame(rows).T.reindex(order)
-    peaks = pd.Series(peak).reindex(order).dropna()
-    outliers = _outlier_mask(peaks) if len(peaks) > 2 else pd.Series(False, index=peaks.index)
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, max(4, 0.3 * len(hm) + 1)),
-                                   gridspec_kw={"width_ratios": [3, 1]})
-    sns.heatmap(hm, cmap="viridis", ax=ax1, cbar_kws={"label": "Same-strand autocorrelation"})
-    ax1.set_xlabel("Distance from 5' end of read"); ax1.set_ylabel("")
-    ax1.set_title(f"Autocorrelation — {len(hm)} replicate(s)")
-    ax1.tick_params(labelsize=7)
-
-    colors = ["#de2d26" if outliers.get(n, False) else "#2c7fb8" for n in peaks.index]
-    ax2.barh(peaks.index, peaks.values, color=colors)
-    ax2.invert_yaxis()
-    ax2.set_xlabel("Peak at offset 0")
-    ax2.set_title("Outliers in red")
-    ax2.tick_params(labelsize=7)
-
+    fig.supxlabel("Distance from 5' end of read")
+    fig.supylabel("Read counts rel. to 5' end")
+    fig.suptitle(f"Autocorrelation — {n} replicate(s)")
     plt.tight_layout()
     plt.savefig(qc_dir / "autocorrelation_per_replicate.png", dpi=150, bbox_inches="tight")
     plt.close()
-    n_out = int(outliers.sum())
-    log.info("QC: autocorrelation_per_replicate.png (%d replicate(s), %d outlier(s))",
-             len(leaves), n_out)
+    log.info("QC: autocorrelation_per_replicate.png (%d replicate(s), grid)", n)
 
 
 # ── Trim / alignment tool logs (NEW) ──────────────────────────────────────────
@@ -857,88 +820,6 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
         log.info("QC alignment summary: no alignment logs found for %s/%s", species, sample)
 
 
-# ── Cross-metric replicate outlier ranking (NEW) ──────────────────────────────
-
-def qc_replicate_outlier_summary(cfg, species, sample, qc_dir) -> None:
-    """One table flagging replicates that look like an outlier on ANY of:
-    total tags, median tags/position, GC content (from tagInfo.txt), weighted
-    read length, or autocorrelation peak — a fast first pass at which
-    replicate(s) are worth actually going to look at, not a definitive QC
-    verdict. Needs 3+ replicates with a given metric to compute an outlier
-    for it (MAD-based detection is meaningless with fewer points)."""
-    leaves = _leaf_tagdirs_for_sample(cfg, species, sample)
-    if not leaves:
-        log.info("QC outlier summary: no replicate TagDirs for %s/%s", species, sample)
-        return
-
-    metrics: dict[str, pd.Series] = {}
-
-    stat_rows = _tagdir_stats_rows(leaves)
-    if stat_rows:
-        stat_df = pd.DataFrame(stat_rows).set_index("TagDir")
-        for col in ("Total Tags", "Median Tags/Position", "Avg Fragment GC"):
-            if col in stat_df.columns:
-                vals = pd.to_numeric(stat_df[col], errors="coerce").dropna()
-                if len(vals) > 2:
-                    metrics[col] = vals
-
-    lengths = {}
-    for leaf_name, d in leaves:
-        f = d / "tagLengthDistribution.txt"
-        if f.exists():
-            df = pd.read_csv(f, sep="\t", index_col=0)
-            w = df.iloc[:, 0]
-            if w.sum() > 0:
-                lengths[leaf_name] = float(np.average(w.index.to_numpy(), weights=w.to_numpy()))
-    if len(lengths) > 2:
-        metrics["Weighted Avg Length"] = pd.Series(lengths)
-
-    ac_scores = {}
-    for leaf_name, d in leaves:
-        f = d / "tagAutocorrelation.txt"
-        if f.exists():
-            df = pd.read_csv(f, sep="\t", index_col=0, header=0,
-                             names=["Same Strand", "Opposite Strand"])
-            if 0 in df.index:
-                ac_scores[leaf_name] = float(df.loc[0, "Same Strand"])
-    if len(ac_scores) > 2:
-        metrics["Autocorr Peak"] = pd.Series(ac_scores)
-
-    if not metrics:
-        log.info("QC outlier summary: not enough data to compute outliers for %s/%s "
-                 "(need 3+ replicates with a shared metric)", species, sample)
-        return
-
-    all_names = sorted({n for s in metrics.values() for n in s.index},
-                       key=lambda n: (assay_of_leaf(n) or "", n))
-    issues: dict[str, list[str]] = {n: [] for n in all_names}
-    for metric_name, series in metrics.items():
-        for leaf_name, is_out in _outlier_mask(series).items():
-            if is_out:
-                issues[leaf_name].append(metric_name)
-
-    rows = [{"Replicate": n, "Assay": assay_of_leaf(n) or "NA",
-            "Flagged Metric(s)": ", ".join(issues[n]) if issues[n] else "\u2014"}
-           for n in all_names]
-    df_out = pd.DataFrame(rows)
-    n_flagged = sum(1 for r in rows if r["Flagged Metric(s)"] != "\u2014")
-
-    fig, ax = plt.subplots(figsize=(9, max(2, 0.4 * len(df_out) + 1)))
-    ax.axis("off")
-    cell_colors = [["#fde0dc" if r["Flagged Metric(s)"] != "\u2014" else "#ffffff"] * len(df_out.columns)
-                  for r in rows]
-    tbl = ax.table(cellText=df_out.values, colLabels=df_out.columns,
-                   cellLoc="left", loc="center", cellColours=cell_colors)
-    tbl.auto_set_font_size(False); tbl.set_fontsize(9)
-    tbl.auto_set_column_width(col=list(range(len(df_out.columns))))
-    plt.title(f"QC Outlier Summary ({n_flagged}/{len(df_out)} replicate(s) flagged)",
-              fontsize=11, pad=10)
-    plt.tight_layout()
-    plt.savefig(qc_dir / "replicate_outlier_summary.png", dpi=150, bbox_inches="tight")
-    plt.close()
-    log.info("QC: replicate_outlier_summary.png (%d/%d flagged, metrics: %s)",
-             n_flagged, len(df_out), ", ".join(metrics.keys()))
-
 
 # ── Distal vs. proximal TSS pie chart (NEW, combined/sample-level) ───────────
 
@@ -1018,7 +899,6 @@ def _run_qc_one(cfg, species, sample) -> None:
     qc_nucleotide_freq_per_replicate(cfg, species, sample, qc_dir)
     qc_autocorrelation_per_replicate(cfg, species, sample, qc_dir)
     qc_tagdir_stats_per_replicate(cfg, species, sample, qc_dir)
-    qc_replicate_outlier_summary(cfg, species, sample, qc_dir)
 
 
 def run_qc(cfg) -> None:
