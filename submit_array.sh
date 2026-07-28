@@ -1,39 +1,16 @@
 #!/bin/bash
-# ─────────────────────────────────────────────────────────────────────────────
-# Controller: submits the 7-phase job-array pipeline with dependencies.
-#
-#   prepare
-#     └─afterok─> align_array[0..N-1]
-#                   ├─afterok─> tagdir_array[0..N-1]          (leaf TagDirs)
-#                   └─afterok─> tagdirs_combo_array[0..S-1]   (combo TagDirs)
-#                                 ├─afterok─> tss_array[0..S-1]
-#                                 └─(+ tagdir_array)─afterok─> bedgraphs_array[0..S-1]
-#                                                                 └─afterok─(+tss_array)─> collect
-#
-# N = number of leaf runs (R1 files in RawData) — align_array/tagdir_array
-# indexing, one task per leaf run.
-# S = number of Species/Sample groups — tagdirs_combo_array/bedgraphs_array/
-# tss_array indexing, one task per Species/Sample (a different, usually
-# smaller count than N, since a sample has several leaf runs).
-#
-# tagdir_array builds each leaf TagDir in parallel (the slow makeTagDirectory
-# step). tagdirs_combo_array merges replicates per assay into a combo TagDir,
-# in parallel per Species/Sample — it only needs align_array, not
-# tagdir_array, so it runs alongside tagdir_array rather than after it.
-# tss_array needs the combo TagDirs; bedgraphs_array needs BOTH the leaf and
-# combo TagDirs (it builds bedGraphs for every TagDir under a sample). collect
-# then just runs QC/stability/report over everything the array phases built.
-#
-#   /path/to/homerun/submit_array.sh \
-#       --project /path/to/proj --partition kamiak --conda-env miniComputer \
-#       --genome-index /path/to/STARIndex --genome hg38 \
-#       [--conda-module anaconda3] [--aligner star|hisat2] [--throttle 16] \
-#       [--email you@wsu.edu] [--copy-src '/src/*_R1*'] \
-#       [-- <extra python flags, e.g. --trim-min 18 --star-filter-multimap 5000>]
-# ─────────────────────────────────────────────────────────────────────────────
+
 set -euo pipefail
 
-usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+# PYTHONPATH set up front (not just after arg parsing) so --help can shell
+# out to `python -m csrnaseq --help` and show every flag valid after `--`.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
+
+usage() {
+    python -m csrnaseq --help 2>/dev/null || echo "(activate your conda env for the csrnaseq flag list)"
+    exit "${1:-0}"
+}
 
 # ── Defaults ──────────────────────────────────────────────────────────────────
 CONDA_MODULE="anaconda3"
@@ -73,13 +50,9 @@ miss=""
 [ -z "${miss}" ] || { echo "ERROR: missing required:${miss}" >&2; usage 1; }
 
 # Find the .sbatch job files (they sit next to this script)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# (SCRIPT_DIR/PYTHONPATH already set near the top of the script, before arg
+# parsing, so --help can shell out to `python -m csrnaseq --help`.)
 cd "${SCRIPT_DIR}"
-
-# Make `python -m csrnaseq` importable WITHOUT pip install: SCRIPT_DIR is the
-# repo dir that contains the csrnaseq/ package, so it goes on PYTHONPATH here
-# (for the login-node calls) and is forwarded to every job below.
-export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
 
 # Activate env so the login-node python calls below work
 module load "${CONDA_MODULE}" 2>/dev/null || true
