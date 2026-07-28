@@ -180,6 +180,46 @@ def parse_sample_name(filename: str) -> tuple[str, str, str]:
     return species, sample, leaf_name
 
 
+def find_r2_for_r1(r1: Path):
+    """Locate r1's paired R2 FASTQ by parsed identity, not by filename
+    substitution.
+
+    A naive `r1.name.replace("_R1", "_R2")` assumes R1 and R2 share the same
+    basename apart from the R1/R2 tag — true for typical Illumina-run
+    naming, but NOT for ENCODE-style downloads, where each mate carries its
+    own independent accession (e.g. '..._ENCFF000HAZ_R1.fastq.gz' paired
+    with '..._ENCFF000HBG_R2.fastq.gz' — a different accession entirely, not
+    a substring swap). String substitution on the R1 name can silently
+    build a path to a file that was never going to exist.
+
+    Instead, this parses every '*_R2*' candidate in r1's own directory (e.g.
+    RawData/, which may hold many replicates'/assays' files together — see
+    Config.rawdata_dir) with parse_sample_name() — which already discards
+    everything after the replicate marker, including any accession/R1-R2
+    tag — and matches on (species, sample, leaf_name), the same identity r1
+    itself parses to. Files that fail to parse (no replicate marker/assay)
+    are silently skipped rather than raising, since a directory shared by
+    every assay/replicate in a sample may well contain unrelated files.
+
+    Returns the matching Path, or None if zero or more than one candidate
+    matches — callers should treat None as "couldn't uniquely identify the
+    mate" and warn/skip rather than guess.
+    """
+    species, sample, leaf_name = parse_sample_name(r1.name)
+    candidates = [
+        p for p in r1.parent.glob("*_R2*")
+        if p.name.endswith(".fastq") or p.name.endswith(".fastq.gz")
+    ]
+    matches = []
+    for p in candidates:
+        try:
+            if parse_sample_name(p.name) == (species, sample, leaf_name):
+                matches.append(p)
+        except ValueError:
+            continue
+    return matches[0] if len(matches) == 1 else None
+
+
 def seq_type(name: str) -> str | None:
     """Classify a filename/sample by library tag. Handles _RNA and _totalRNA."""
     if "_csRNA" in name:
