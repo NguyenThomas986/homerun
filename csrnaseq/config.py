@@ -15,6 +15,10 @@ OPTIONAL — enables extra features when set:
   CSRNA_GTF            path to a GTF annotation file. Only needed for the
                        'ritrie' step (RIT/RIE QC metric); without it, ritrie
                        is skipped with a log message rather than failing.
+  CSRNA_CLEANUP_INTERMEDIATES
+                       "1"/"true"/"yes"/"on" to delete each sample's
+                       Trimmed/ and Aligned/ directories once QC has been
+                       generated from them. Off by default.
 """
 from __future__ import annotations
 
@@ -28,6 +32,13 @@ def _env(name: str, default):
     return v if v not in (None, "") else default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v in (None, ""):
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+
 def _pick(args, attr, env_name, default):
     """Precedence: explicit CLI flag (if given) > CSRNA_* env var > built-in default.
 
@@ -38,6 +49,17 @@ def _pick(args, attr, env_name, default):
     if cli is not None:
         return cli
     return _env(env_name, default)
+
+
+def _pick_bool(args, attr, env_name, default: bool) -> bool:
+    """Same precedence as _pick, but for boolean flags backed by an
+    argparse action="store_true" (default=None so 'not passed' is
+    distinguishable from 'passed as False') and a CSRNA_* env var that
+    needs string→bool coercion rather than being taken as-is."""
+    cli = getattr(args, attr, None) if args is not None else None
+    if cli is not None:
+        return bool(cli)
+    return _env_bool(env_name, default)
 
 
 @dataclass
@@ -84,6 +106,9 @@ class Config:
 
     # STARIndex auto-download (only used when aligner == "star" and genome_index is missing)
     starindex_url: str = ""           # set via CSRNA_STARINDEX_URL in config.env
+
+    # QC housekeeping
+    cleanup_intermediates: bool = False   # delete Trimmed/Aligned after QC generation
 
     # ── Derived directories ───────────────────────────────────────────────────
     # NOTE: RawData/Trimmed/Aligned/TagDirs/bedGraphs/RITRIE/QC/TSS are all
@@ -197,4 +222,7 @@ def load_config(args=None) -> Config:
         distal_col=_env("CSRNA_DISTAL_COL", "Promoter Proximal/Distal"),
         log_path=_pick(args, "log_path", "CSRNA_LOG", ""),
         starindex_url=_env("CSRNA_STARINDEX_URL", ""),
+        # ── QC housekeeping (flag > env > default) ───────────────────────────
+        cleanup_intermediates=_pick_bool(args, "cleanup_intermediates",
+                                         "CSRNA_CLEANUP_INTERMEDIATES", False),
     )
