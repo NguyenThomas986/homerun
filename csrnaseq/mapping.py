@@ -8,11 +8,16 @@ step and single-command re-runs work the same regardless of aligner.
 cfg.genome_index must be set explicitly (no genome is assumed):
   - STAR   → used as --genomeDir (a directory)
   - HISAT2 → used as -x (an index prefix, e.g. /path/idx/genome)
+
+For totalRNA (paired-end), the R2 mate is located via utils.find_r2_for_r1()
+— matched by parsed (species, sample, leaf_name) identity, not by swapping
+"_R1" for "_R2" in the filename, since ENCODE-style downloads give each
+mate its own independent accession number rather than sharing a basename.
 """
 from __future__ import annotations
 import os
 from pathlib import Path
-from .utils import run, log, seq_type, done, list_r1, leaf_dir
+from .utils import run, log, seq_type, done, list_r1, leaf_dir, find_r2_for_r1
 
 
 def _check_index(cfg) -> None:
@@ -117,10 +122,15 @@ def map_one(cfg, r1) -> None:
             run(_hisat2_cmd(cfg, f"-U {trimmed}", str(sam), aligned_dir), label=f"HISAT2 SE {r1.name}")
         else:
             run(_star_cmd(cfg, str(trimmed), str(aligned_dir / prefix)), label=f"STAR SE {r1.name}")
-    elif st == "totalRNA":                                   # paired-end
+    elif st == "totalRNA":                                   # paired-end (trimmed by homerTools -pe)
         base = r1.name.split("_R1")[0]
-        p1 = trimmed_dir / f"{base}-trimmed-pair1.fastq"
-        p2 = trimmed_dir / f"{base}-trimmed-pair2.fastq"
+        r2 = find_r2_for_r1(r1)
+        if r2 is None:
+            log.warning("mapping: could not uniquely identify R2 mate for %s in %s "
+                       "— skipping.", r1.name, r1.parent)
+            return
+        p1 = trimmed_dir / f"{r1.name}.trimmed"
+        p2 = trimmed_dir / f"{r2.name}.trimmed"
         if not p1.exists():
             log.warning("mapping: trimmed pair missing for %s (%s)", base, p1.name); return
         sam = aligned_dir / f"{base}.Aligned.out.sam"
