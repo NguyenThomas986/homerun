@@ -305,6 +305,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
 
+    g.add_argument(
+        "--cleanup-intermediates",
+        action="store_true",
+        default=None,
+        help=(
+            "Delete each sample's Trimmed/ and Aligned/ directories once "
+            "the qc step has generated its tables from them (overrides "
+            "CSRNA_CLEANUP_INTERMEDIATES). Off by default."
+        ),
+    )
+
+
 
     # ----------------------------------------------------------
     # Alignment overrides
