@@ -588,7 +588,7 @@ def _autocorrelation_grid(leaves, qc_dir) -> None:
     log.info("QC: autocorrelation_per_replicate.png (%d replicate(s), grid)", n)
 
 
-# ── Trim / alignment tool logs (NEW) ──────────────────────────────────────────
+# ── Trim / alignment tool logs ────────────────────────────────────────────────
 # These files already exist on disk as a byproduct of trim.py/mapping.py —
 # homerTools' .lengths, skewer's -trimmed.log, STAR's Log.final.out, and
 # hisat2's _mappingstats.txt — this only reads and summarizes them; it
@@ -633,26 +633,42 @@ def _parse_homer_lengths(path):
 
 
 def _parse_skewer_log(path):
-    """skewer's <prefix>-trimmed.log. Format not independently verified
-    against a real skewer run, so this is deliberately defensive: try a
-    couple of plausible label patterns and return None for whatever doesn't
-    match rather than risk silently mis-parsing — the raw log is always
-    copied into QC/ regardless (see _copy_raw_log), so nothing is lost
-    even when parsing comes up empty."""
+    """skewer's <prefix>-trimmed.log. Tries several label patterns seen
+    across skewer versions and returns None for whatever doesn't match
+    rather than risk silently mis-parsing — the raw log is always copied
+    into QC/ regardless (see _copy_raw_log), so nothing is lost even when
+    parsing comes up empty.
+
+    Returns (total_reads, avail_pct) where avail_pct is the % of reads
+    retained/available after trimming."""
     import re
     try:
         txt = path.read_text(errors="replace")
     except Exception as exc:
         log.warning("QC logs: could not read %s: %s", path, exc)
         return None, None
+
     total = None
-    m = re.search(r"([\d,]+)\s+reads?\s*(?:pairs?)?\s+processed", txt, re.I)
-    if m:
-        total = int(m.group(1).replace(",", ""))
+    for pattern in (
+        r"([\d,]+)\s+reads?\s*(?:pairs?)?\s+processed",
+        r"reads?\s+processed:\s+([\d,]+)",
+    ):
+        m = re.search(pattern, txt, re.I)
+        if m:
+            total = int(m.group(1).replace(",", ""))
+            break
+
     avail_pct = None
-    m = re.search(r"([\d.]+)\s*%\)?\s+(?:reads?|pairs?)\s+available", txt, re.I)
-    if m:
-        avail_pct = float(m.group(1))
+    for pattern in (
+        r"([\d.]+)\s*%\)?\s+(?:reads?|pairs?)\s+available",
+        r"available;\s*suitable for further analysis:\s*[\d,]+\s*\(([\d.]+)%\)",
+        r"\(([\d.]+)%\)\s+trimmed reads? available",
+    ):
+        m = re.search(pattern, txt, re.I)
+        if m:
+            avail_pct = float(m.group(1))
+            break
+
     return total, avail_pct
 
 
@@ -733,7 +749,12 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
     for trimming; STAR or hisat2 for alignment. Writes two summary tables
     (trim_stats_summary.png, alignment_stats_summary.png) plus a raw copy of
     every underlying log file (picked up automatically by the Data Files
-    section)."""
+    section).
+
+    Both tools' rows share an "Overall Aligned %" column so alignment
+    quality is directly comparable regardless of which aligner ran: hisat2
+    reports it natively, STAR's is derived as Uniquely + Multi-Mapped %.
+    """
     leaves = _leaf_tagdirs_for_sample(cfg, species, sample)
     if not leaves:
         log.info("QC trim/align logs: no replicates for %s/%s", species, sample)
@@ -765,6 +786,8 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
                     "% Removed": (round(100 - avail_pct, 2)
                                  if avail_pct is not None else "NA"),
                 })
+            else:
+                log.info("QC trim: no skewer log found for %s (%s)", leaf_name, skewer_log)
         else:
             lengths_file = trimmed_dir / f"{r1.name}.lengths"
             if lengths_file.exists():
@@ -786,12 +809,17 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
             f = _parse_star_log(star_log)
             if f:
                 unmapped = [f[k] for k in f if k.startswith("Unmapped") and f[k] is not None]
+                uniq = f.get("Uniquely Mapped %")
+                multi = f.get("Multi-Mapped %")
+                overall = (round(uniq + multi, 2)
+                          if uniq is not None and multi is not None else "NA")
                 align_rows.append({
                     "Replicate": leaf_name, "Tool": "STAR",
                     "Input Reads": f.get("Input Reads", "NA"),
                     "Uniquely Mapped %": f.get("Uniquely Mapped %", "NA"),
                     "Multi-Mapped %": f.get("Multi-Mapped %", "NA"),
                     "Unmapped %": round(sum(unmapped), 2) if unmapped else "NA",
+                    "Overall Aligned %": overall,
                 })
         elif hisat_log.exists():
             _copy_raw_log(hisat_log, qc_dir, f"{leaf_name}_mappingstats.txt")
@@ -803,6 +831,7 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
                     "Uniquely Mapped %": f.get("Uniquely Mapped %", "NA"),
                     "Multi-Mapped %": f.get("Multi-Mapped %", "NA"),
                     "Unmapped %": f.get("Unmapped %", "NA"),
+                    "Overall Aligned %": f.get("Overall Aligned %", "NA"),
                 })
 
     if trim_rows:
@@ -821,7 +850,7 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
 
 
 
-# ── Distal vs. proximal TSS pie chart (NEW, combined/sample-level) ───────────
+# ── Distal vs. proximal TSS pie chart (combined/sample-level) ────────────────
 
 def qc_distal_proximal_pie(cfg, species, sample, qc_dir) -> None:
     """Promoter-proximal vs. distal TSS proportions, straight from the
@@ -866,13 +895,60 @@ def qc_distal_proximal_pie(cfg, species, sample, qc_dir) -> None:
     log.info("QC: distal_proximal_pie.png (%s/%s)", species, sample)
 
 
+# ── Intermediate-file cleanup (NEW) ───────────────────────────────────────────
+# Trimming/alignment intermediates (Trimmed/, Aligned/) are large and, by the
+# time QC runs, already fully consumed: tag directories were built from them
+# earlier in the pipeline, and whatever's useful for QC purposes has already
+# been copied into qc_dir as raw logs by qc_trim_align_summary (read+copied
+# above, before this ever runs). Deleting them here only removes files that
+# nothing downstream still reads. Opt-in via cfg.cleanup_intermediates so
+# existing pipelines keep their current behavior unless a caller asks for it.
+
+def qc_cleanup_intermediates(cfg, species, sample, qc_dir) -> None:
+    """Remove this sample's intermediate Trimmed/ and Aligned/ directories
+    after QC generation, keeping only the final QC tables/reports (and the
+    raw log copies qc_trim_align_summary already placed under qc_dir).
+    No-op unless cfg.cleanup_intermediates is truthy. Missing directories,
+    missing Config accessors, or filesystem errors are logged and skipped
+    rather than raised, so a cleanup failure never breaks QC generation."""
+    if not getattr(cfg, "cleanup_intermediates", False):
+        return
+
+    import shutil as _shutil
+
+    targets = (
+        ("trimmed_dir", "Trimmed"),
+        ("aligned_dir", "Aligned"),
+    )
+    for accessor_name, label in targets:
+        accessor = getattr(cfg, accessor_name, None)
+        if accessor is None:
+            log.warning("QC cleanup: Config has no %s(); skipping %s cleanup for %s/%s",
+                       accessor_name, label, species, sample)
+            continue
+        try:
+            d = accessor(species, sample)
+        except Exception as exc:
+            log.warning("QC cleanup: could not resolve %s dir for %s/%s: %s",
+                       label, species, sample, exc)
+            continue
+        if d is None or not d.is_dir():
+            continue
+        try:
+            _shutil.rmtree(d)
+            log.info("QC cleanup: removed intermediate %s dir %s", label, d)
+        except Exception as exc:
+            log.warning("QC cleanup: failed to remove %s (%s): %s", d, label, exc)
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def _run_qc_one(cfg, species, sample) -> None:
     qc_dir = cfg.sample_qc(species, sample)
     qc_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Pipeline logs (trim/align tool output) — new, rendered first ────────
+    # ── Pipeline logs (trim/align tool output) — rendered first, and raw
+    #    copies are written into qc_dir here so cleanup below is safe ───────
     qc_trim_align_summary(cfg, species, sample, qc_dir)
 
     # ── Sample-level QC (from combined/-combo TagDirs) — unchanged ──────────
@@ -894,11 +970,15 @@ def _run_qc_one(cfg, species, sample) -> None:
     qc_tagdir_stats(cfg, species, sample, qc_dir)
     qc_distal_proximal_pie(cfg, species, sample, qc_dir)
 
-    # ── Per-replicate QC (from each individual leaf TagDir) — new ───────────
+    # ── Per-replicate QC (from each individual leaf TagDir) ─────────────────
     qc_read_length_per_replicate(cfg, species, sample, qc_dir)
     qc_nucleotide_freq_per_replicate(cfg, species, sample, qc_dir)
     qc_autocorrelation_per_replicate(cfg, species, sample, qc_dir)
     qc_tagdir_stats_per_replicate(cfg, species, sample, qc_dir)
+
+    # ── Cleanup — last, so every plot/table above has already read
+    #    whatever it needed from Trimmed/ and Aligned/ ───────────────────────
+    qc_cleanup_intermediates(cfg, species, sample, qc_dir)
 
 
 def run_qc(cfg) -> None:
