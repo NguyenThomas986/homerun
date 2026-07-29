@@ -180,8 +180,7 @@ _IMG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "trim_stats_summary": (
         "homerTools .lengths / skewer -trimmed.log (each replicate's Trimmed/)",
         "Input reads and % removed per replicate — adapter-dimer rate for "
-        "homerTools (csRNA/sRNA), best-effort parse for skewer (totalRNA); "
-        "see the raw log in Data Files below if a skewer row looks off.",
+        "homerTools (csRNA/sRNA), best-effort parse for skewer (totalRNA).",
     ),
     "alignment_stats_summary": (
         "STAR Log.final.out / hisat2 _mappingstats.txt (each replicate's Aligned/)",
@@ -304,8 +303,7 @@ def _build_qc_html(species: str, sample: str, qc_dir: Path, now: str) -> str:
 
     img_section = _render_img_grid(
         log_imgs, "Pipeline Logs",
-        note=("Trim and alignment tool summaries, straight from each replicate's "
-              "own log file — raw logs are in Data Files below."),
+        note="Trim and alignment tool summaries, one row per replicate.",
     )
     img_section += _render_img_grid(sample_imgs, "Sample-Level QC")
     img_section += _render_img_grid(
