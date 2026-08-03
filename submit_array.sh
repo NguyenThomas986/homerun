@@ -94,6 +94,11 @@ S=$(python -m csrnaseq "${PY_ARGS[@]}" --count-groups)
 [ "${S}" -ge 1 ] || { echo "ERROR: no Species/Sample groups found under ${PROJECT}"; exit 1; }
 echo "Found ${S} Species/Sample group(s) → array 0-$((S-1))"
 
+# ── Refuse to submit anything if this run would touch nothing new ─────────────
+# Must run BEFORE the first sbatch call below — once jobs are queued it's too
+# late to stop them. Add --force/--overwrite (after `--`) to override.
+python -m csrnaseq "${PY_ARGS[@]}" --check-rerun
+
 # ── SLURM options ─────────────────────────────────────────────────────────────
 SOPTS="--partition=${PARTITION} --mail-type=ALL"
 [ -n "${EMAIL}" ] && SOPTS="${SOPTS} --mail-user=${EMAIL}"
