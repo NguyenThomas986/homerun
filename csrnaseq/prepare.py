@@ -13,6 +13,70 @@ from datetime import datetime
 from pathlib import Path
 from .utils import run, log, parse_sample_name, list_samples
 
+# Per-sample output directories that indicate a PREVIOUS run already
+# produced results in this project (see find_existing_outputs()). Report
+# HTML lives inside QC/ and config.txt lives at the project root, so
+# neither needs its own entry here.
+OUTPUT_DIR_NAMES = ("Trimmed", "Aligned", "TagDirs", "bedGraphs", "TSS", "QC")
+
+
+def find_existing_outputs(cfg) -> list[Path]:
+    """Return existing, NON-EMPTY Species/Sample/<output> directories
+    (Trimmed/Aligned/TagDirs/bedGraphs/TSS/QC), for display in the
+    --force guard's message.
+
+    Only non-empty directories count: an empty dir left over from e.g. a
+    prior mkdir-then-crash shouldn't itself trigger the guard. Sorted for a
+    stable, readable message.
+    """
+    found = []
+    for name in OUTPUT_DIR_NAMES:
+        for d in cfg.project.glob(f"*/*/{name}"):
+            if d.is_dir() and any(d.iterdir()):
+                found.append(d)
+    return sorted(found)
+
+
+def find_incomplete_samples(cfg) -> list[tuple[str, str]]:
+    """Species/Sample pairs (from list_samples(cfg), i.e. ones with raw input
+    already staged) that don't yet have a populated QC/ — the marker every
+    sample's run leaves behind once qc/report have run on it. Used by the
+    --force guard to tell "new/partially-processed samples exist, keep
+    going" apart from "everything already finished, this would be a pure
+    rerun"."""
+    incomplete = []
+    for species, sample in list_samples(cfg):
+        qc_dir = cfg.sample_qc(species, sample)
+        if not (qc_dir.is_dir() and any(qc_dir.iterdir())):
+            incomplete.append((species, sample))
+    return incomplete
+
+
+def rerun_needs_force(cfg) -> bool:
+    """True only when this invocation would touch NOTHING new: existing
+    output is present AND every currently-staged sample already has a
+    populated QC/ (i.e. already ran the pipeline to completion). That's the
+    "accidentally reran an already-finished project" case --force guards
+    against.
+
+    Every step already skips its own finished per-file/per-sample work via
+    utils.done(), so an incremental run — some samples/replicates done,
+    others new or partially processed — is always safe without --force;
+    it'll simply pick up where it left off and leave completed work alone.
+    Only a run with literally nothing left to do needs the explicit
+    confirmation, since that's the actual "did I mean to rerun this?"
+    signal.
+    """
+    if not find_existing_outputs(cfg):
+        return False
+    samples = list_samples(cfg)
+    if not samples:
+        # Output exists but no samples are currently discoverable (e.g. all
+        # RawData/ was removed) — ambiguous, so be conservative and ask.
+        return True
+    return not find_incomplete_samples(cfg)
+
+
 def setup_dirs(cfg) -> None:
     # Only the project-wide logs/ dir is created up front; per-sample
     # RawData/Trimmed/Aligned/TagDir/bedGraph/QC/TSS dirs are all created on
