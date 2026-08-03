@@ -172,6 +172,22 @@ def build_parser() -> argparse.ArgumentParser:
 
 
     p.add_argument(
+        "--force", "--overwrite",
+        dest="force",
+        action="store_true",
+        help=(
+            "Allow rerunning on a project that already has pipeline "
+            "outputs (Trimmed/Aligned/TagDirs/bedGraphs/TSS/QC). Without "
+            "this flag, HOMERun refuses to start (and does not touch "
+            "anything) if any of those already exist, to avoid "
+            "accidentally overwriting a previous run. Has no effect on "
+            "--count-samples/--count-groups/--stage-raw, which never "
+            "modify or delete existing outputs."
+        ),
+    )
+
+
+    p.add_argument(
         "--only-prepare",
         action="store_true",
         help="Run prepare and exit.",
@@ -570,6 +586,45 @@ def main(argv=None) -> int:
             args.group_index,
         )
 
+
+
+    # ----------------------------------------------------------
+    # Refuse to start a run that would touch NOTHING new — i.e. every
+    # currently-staged sample already finished (has a populated QC/) and
+    # some output already exists — unless the user explicitly opted in with
+    # --force/--overwrite. This is the "accidentally reran an already-
+    # finished project" case; it does NOT block incremental runs (new or
+    # partially-processed samples alongside already-finished ones), since
+    # every step already skips its own completed work via utils.done() and
+    # will simply pick up where it left off. Placed after
+    # --count-samples/--count-groups/--stage-raw (which never modify or
+    # delete existing outputs, and are used as a cheap SLURM-array
+    # pre-flight before any real work starts) and before --only-prepare/
+    # run_pipeline (which do).
+    # ----------------------------------------------------------
+
+    if not args.force and prepare.rerun_needs_force(cfg):
+
+        existing = prepare.find_existing_outputs(cfg)
+
+        shown = "\n".join(
+            f"  - {p.relative_to(cfg.project)}" for p in existing[:10]
+        )
+        if len(existing) > 10:
+            shown += f"\n  ... and {len(existing) - 10} more"
+
+        log.error(
+            "Every sample in this project already has QC output from a "
+            "previous run, and no new/incomplete samples were found:\n"
+            "%s\n\n"
+            "To avoid accidentally rerunning a finished project, HOMERun "
+            "will not continue.\n\n"
+            "If you intended to rerun the pipeline, run again with:\n"
+            "    --force\n",
+            shown,
+        )
+
+        return 1
 
 
     try:
