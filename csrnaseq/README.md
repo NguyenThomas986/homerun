@@ -26,6 +26,29 @@ Useful flags include:
 - `--only-prepare`: create folders and exit
 - `--skip-prepare`: skip setup on later runs
 - `--count-samples` / `--list-samples`: inspect input files
+- `--force` / `--overwrite`: allow rerunning on a project that already has
+  pipeline outputs (see below)
+
+### Rerunning on an existing project
+
+Every step already skips its own finished work (via a `done()`-style check
+before each command), so re-running the pipeline on a project that has some
+samples finished and others new or in-progress is always safe and does
+exactly what you'd want — it fills in whatever's missing and leaves
+completed samples untouched. **No flag is needed for that.**
+
+HOMERun only refuses to start in one specific case: every sample currently
+staged in the project already has a populated `QC/` (i.e. the pipeline has
+already run to completion for everything present) and no new or
+partially-processed sample was found. That means the invocation would touch
+nothing new — almost always a sign you pointed `--project` at the wrong
+place, or forgot you'd already run this project. In that case it exits
+immediately with a message listing the existing output it found, before
+`--only-prepare` or any pipeline step runs. Pass `--force` (or `--overwrite`)
+to proceed anyway (e.g. to force a full redo). This check doesn't apply to
+`--count-samples`, `--count-groups`, or `--stage-raw`, which never modify or
+delete existing outputs and are used as a cheap pre-flight before SLURM
+array submission.
 
 ## Configuration
 
