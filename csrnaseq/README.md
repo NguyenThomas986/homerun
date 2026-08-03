@@ -26,6 +26,8 @@ Useful flags include:
 - `--only-prepare`: create folders and exit
 - `--skip-prepare`: skip setup on later runs
 - `--count-samples` / `--list-samples`: inspect input files
+- `--check-rerun`: preflight exit code for wrapper scripts (see below);
+  prints nothing on success
 - `--force` / `--overwrite`: allow rerunning on a project that already has
   pipeline outputs (see below)
 
@@ -49,6 +51,17 @@ to proceed anyway (e.g. to force a full redo). This check doesn't apply to
 `--count-samples`, `--count-groups`, or `--stage-raw`, which never modify or
 delete existing outputs and are used as a cheap pre-flight before SLURM
 array submission.
+
+If you're driving the pipeline through `submit_array.sh` (or any wrapper
+that submits each step as its own `sbatch` job), the in-process check above
+runs too late to help — by the time a submitted job reaches
+`--only-prepare`/`run_pipeline`, every other job is already queued.
+`submit_array.sh` instead calls `--check-rerun` as a lightweight preflight,
+right after it reports the sample/group counts and before it submits
+anything: it does the same "is there anything new to do" check as above and
+exits 1 with the same message if not, which (under `set -euo pipefail`)
+stops the script before any `sbatch` call. Pass `--force`/`--overwrite` after
+`--` to `submit_array.sh` to bypass it the same way.
 
 ## Configuration
 
