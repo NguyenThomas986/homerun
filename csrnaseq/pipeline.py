@@ -215,6 +215,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 
     p.add_argument(
+        "--check-rerun",
+        action="store_true",
+        help=(
+            "Preflight check for wrapper scripts: exit 1 (with an "
+            "explanatory message) if every currently-staged sample "
+            "already has a populated QC/ and --force/--overwrite was not "
+            "given, meaning this run would touch nothing new. Exit 0 "
+            "otherwise. Does not submit or run anything itself — call it "
+            "BEFORE submitting any SLURM jobs, the same way "
+            "--count-samples/--count-groups are used."
+        ),
+    )
+
+
+    p.add_argument(
         "--stage-raw",
         action="store_true",
         help=(
@@ -498,6 +513,24 @@ def print_banner():
 
 
 
+def _rerun_guard_message(cfg) -> str:
+    existing = prepare.find_existing_outputs(cfg)
+    shown = "\n".join(
+        f"  - {p.relative_to(cfg.project)}" for p in existing[:10]
+    )
+    if len(existing) > 10:
+        shown += f"\n  ... and {len(existing) - 10} more"
+    return (
+        "Every sample in this project already has QC output from a "
+        "previous run, and no new/incomplete samples were found:\n"
+        f"{shown}\n\n"
+        "To avoid accidentally rerunning a finished project, HOMERun "
+        "will not continue.\n\n"
+        "If you intended to rerun the pipeline, run again with:\n"
+        "    --force\n"
+    )
+
+
 def main(argv=None) -> int:
 
     args = build_parser().parse_args(argv)
@@ -526,6 +559,23 @@ def main(argv=None) -> int:
         print(
             len(list_samples(cfg))
         )
+
+        return 0
+
+
+
+    if args.check_rerun:
+
+        # Preflight for wrapper scripts (e.g. submit_array.sh): must be
+        # callable, and must catch a would-be no-op rerun, BEFORE any
+        # sbatch job is submitted — the sbatch jobs themselves each only
+        # run one step of an already-in-flight array, far too late to stop
+        # the submission. Prints to stderr and returns a plain exit code,
+        # same convention as --count-samples/--count-groups, so a caller
+        # under `set -euo pipefail` aborts cleanly on failure.
+        if not args.force and prepare.rerun_needs_force(cfg):
+            print(_rerun_guard_message(cfg), file=sys.stderr)
+            return 1
 
         return 0
 
@@ -605,24 +655,7 @@ def main(argv=None) -> int:
 
     if not args.force and prepare.rerun_needs_force(cfg):
 
-        existing = prepare.find_existing_outputs(cfg)
-
-        shown = "\n".join(
-            f"  - {p.relative_to(cfg.project)}" for p in existing[:10]
-        )
-        if len(existing) > 10:
-            shown += f"\n  ... and {len(existing) - 10} more"
-
-        log.error(
-            "Every sample in this project already has QC output from a "
-            "previous run, and no new/incomplete samples were found:\n"
-            "%s\n\n"
-            "To avoid accidentally rerunning a finished project, HOMERun "
-            "will not continue.\n\n"
-            "If you intended to rerun the pipeline, run again with:\n"
-            "    --force\n",
-            shown,
-        )
+        log.error(_rerun_guard_message(cfg))
 
         return 1
 
