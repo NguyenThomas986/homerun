@@ -17,7 +17,7 @@ from .utils import run, log, parse_sample_name, list_samples
 # produced results in this project (see find_existing_outputs()). Report
 # HTML lives inside QC/ and config.txt lives at the project root, so
 # neither needs its own entry here.
-OUTPUT_DIR_NAMES = ("Trimmed", "Aligned", "TagDirs", "bedGraphs", "TSS")
+OUTPUT_DIR_NAMES = ("Trimmed", "Aligned", "TagDirs", "bedGraphs", "TSS", "QC")
 
 
 def find_existing_outputs(cfg) -> list[Path]:
