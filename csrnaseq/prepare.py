@@ -39,15 +39,23 @@ def find_existing_outputs(cfg) -> list[Path]:
 
 def find_incomplete_samples(cfg) -> list[tuple[str, str]]:
     """Species/Sample pairs (from list_samples(cfg), i.e. ones with raw input
-    already staged) that don't yet have a populated QC/ — the marker every
-    sample's run leaves behind once qc/report have run on it. Used by the
-    --force guard to tell "new/partially-processed samples exist, keep
-    going" apart from "everything already finished, this would be a pure
-    rerun"."""
+    already staged) that don't yet have a finished qc_report.html — the
+    marker every sample's run leaves behind once qc+report have run on it.
+    Used by the --force guard to tell "new/partially-processed samples
+    exist, keep going" apart from "everything already finished, this would
+    be a pure rerun".
+
+    Checks for the report file specifically (QC/qc_report.html), not just
+    a non-empty QC/ dir — QC/ can easily contain PNGs/tables from a run
+    that crashed or was interrupted before report.py ever wrote the final
+    HTML, and a non-empty-dir check would wrongly treat that sample as
+    done forever.
+    """
     incomplete = []
     for species, sample in list_samples(cfg):
         qc_dir = cfg.sample_qc(species, sample)
-        if not (qc_dir.is_dir() and any(qc_dir.iterdir())):
+        report = qc_dir / "qc_report.html"
+        if not report.is_file():
             incomplete.append((species, sample))
     return incomplete
 
