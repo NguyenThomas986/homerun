@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=csrna_collect
 #SBATCH --time=1:00:00
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=2G
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=5G
 set -euo pipefail
 
 # Args from submit_array.sh: <conda_module> <conda_env> <project> [python flags...]
