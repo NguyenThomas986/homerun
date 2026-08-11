@@ -109,6 +109,7 @@ class Config:
 
     # QC housekeeping
     cleanup_intermediates: bool = False   # delete Trimmed/Aligned after QC generation
+    force: bool = False                   # --force/--overwrite: wipe existing outputs in prepare()
 
     # ── Derived directories ───────────────────────────────────────────────────
     # NOTE: RawData/Trimmed/Aligned/TagDirs/bedGraphs/RITRIE/QC/TSS are all
@@ -225,4 +226,5 @@ def load_config(args=None) -> Config:
         # ── QC housekeeping (flag > env > default) ───────────────────────────
         cleanup_intermediates=_pick_bool(args, "cleanup_intermediates",
                                          "CSRNA_CLEANUP_INTERMEDIATES", False),
+        force=_pick_bool(args, "force", "CSRNA_FORCE", False),               # --force/--overwrite: wipe existing outputs in prepare()
     )

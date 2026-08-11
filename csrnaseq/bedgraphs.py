@@ -63,8 +63,8 @@ def run_bedgraphs(cfg, group=None) -> None:
         bedgraph_dir = sample_dir / "bedGraphs" / td.name
         bedgraph_dir.mkdir(parents=True, exist_ok=True)
         style = "rnaseq" if assay == "totalRNA" else "tss"
-        pos = bedgraph_dir / "posStrand.bedGraph"
-        neg = bedgraph_dir / "negStrand.bedGraph"
+        pos = bedgraph_dir / "posStrand.bedGraph.gz"
+        neg = bedgraph_dir / "negStrand.bedGraph.gz"
 
         if not done(pos):
             run(f"makeUCSCfile {td} -style {style} -strand + {skip}-o {pos}",

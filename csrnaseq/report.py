@@ -1,8 +1,20 @@
-"""Step — HTML report generation.
+"""Step — HTML + PDF report generation.
 
-Writes one self-contained qc_report.html per Species/Sample, saved directly
-into that sample's own QC/ folder (Species/Sample/QC/qc_report.html) —
-embedding that sample's PNGs (base64) and any QC data files.
+Writes one self-contained qc_report.html AND one qc_report.pdf per
+Species/Sample, both saved directly into that sample's own QC/ folder
+(Species/Sample/QC/) — same content, same section order, same image
+captions in both. The HTML embeds PNGs as base64; the PDF embeds them as
+native reportlab Image flowables built straight from the same PNG files
+and the same _IMG_ORDER*/_IMG_DESCRIPTIONS tables, so the two never drift
+apart from each other.
+
+PDF generation needs the `reportlab` package (pure-Python, no system
+libraries like Cairo/Pango required — deliberately chosen over an
+HTML-to-PDF renderer for that reason, since this pipeline runs on HPC
+compute nodes where installing system packages usually isn't an option).
+If reportlab isn't installed, the PDF is skipped with a warning and the
+HTML report is still written — a missing PDF dependency never blocks the
+report step.
 
 Run standalone:
     csrnaseq --steps report
@@ -330,6 +342,182 @@ def _build_qc_html(species: str, sample: str, qc_dir: Path, now: str) -> str:
     return _html_page(f"QC Report — {species}/{sample}", f"{species}/{sample}", now, body, _QC_CSS)
 
 
+# ── PDF builder ───────────────────────────────────────────────────────────────
+# Mirrors _build_qc_html's structure section-for-section (Pipeline Logs,
+# Sample-Level QC, Per-Replicate QC, Data Files) using the same
+# _IMG_ORDER*/_IMG_DESCRIPTIONS tables, so the PDF and HTML reports never
+# show different content or a different order — only the rendering differs.
+
+def _pdf_import_error_hint() -> str:
+    return ("PDF report skipped — the 'reportlab' package isn't installed. "
+           "Install it with `pip install reportlab` to also get a "
+           "qc_report.pdf alongside qc_report.html.")
+
+
+def _pdf_styles():
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_LEFT
+
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(
+        name="RptTitle", fontName="Helvetica-Bold", fontSize=18, leading=22,
+        spaceAfter=2, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(
+        name="RptMeta", fontName="Helvetica", fontSize=9,
+        textColor=colors.HexColor("#888888"), spaceAfter=4, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(
+        name="SectionLabel", fontName="Helvetica-Bold", fontSize=10,
+        textColor=colors.HexColor("#999999"), spaceBefore=20, spaceAfter=8,
+        alignment=TA_LEFT))
+    styles.add(ParagraphStyle(
+        name="SectionNote", fontName="Helvetica-Oblique", fontSize=9,
+        textColor=colors.HexColor("#888888"), spaceAfter=10, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(
+        name="ImgName", fontName="Courier", fontSize=8,
+        textColor=colors.HexColor("#888888"), spaceAfter=4, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(
+        name="CapSource", fontName="Helvetica-Bold", fontSize=8,
+        textColor=colors.HexColor("#aaaaaa"), spaceBefore=6, spaceAfter=2,
+        alignment=TA_LEFT))
+    styles.add(ParagraphStyle(
+        name="CapDesc", fontName="Helvetica", fontSize=9, leading=13,
+        textColor=colors.HexColor("#333333"), spaceAfter=16, alignment=TA_LEFT))
+    styles.add(ParagraphStyle(
+        name="DataHeading", fontName="Courier-Bold", fontSize=9,
+        textColor=colors.HexColor("#888888"), spaceBefore=16, spaceAfter=4,
+        alignment=TA_LEFT))
+    styles.add(ParagraphStyle(
+        name="DataBody", fontName="Courier", fontSize=6.5, leading=8.5,
+        textColor=colors.HexColor("#333333"), spaceAfter=14, alignment=TA_LEFT))
+    return styles
+
+
+def _pdf_image_flowable(path: Path, avail_width: float, avail_height: float):
+    """A reportlab Image scaled to fit within (avail_width, avail_height) —
+    constrained by whichever dimension is tighter, so a single image can
+    never be too large for one page (which would otherwise raise a
+    LayoutError and abort the whole PDF). Very tall per-replicate grid PNGs
+    (many replicates -> many rows, see qc.py's _replicate_grid) get scaled
+    down a lot as a result — legible detail trades off against guaranteed
+    single-page placement; this mirrors the same "many replicates" scaling
+    tradeoff qc.py already makes for the PNGs themselves."""
+    from reportlab.lib.utils import ImageReader
+    from reportlab.platypus import Image as RLImage
+
+    img_w, img_h = ImageReader(str(path)).getSize()
+    scale = min(avail_width / img_w, avail_height / img_h, 1.0)
+    return RLImage(str(path), width=img_w * scale, height=img_h * scale)
+
+
+def _pdf_img_block(f: Path, styles, avail_width: float, avail_height: float):
+    """Flowables for one image: filename label, the image itself, and its
+    source/description caption if one exists — kept together so they never
+    split across a page break (safe because the image is already scaled to
+    fit a single page by _pdf_image_flowable)."""
+    from reportlab.platypus import Paragraph, Spacer, KeepTogether
+
+    block = [
+        Paragraph(f.name, styles["ImgName"]),
+        _pdf_image_flowable(f, avail_width, avail_height * 0.85),
+    ]
+    desc = _get_description(f.stem)
+    if desc:
+        source, text = desc
+        block.append(Paragraph(f"Source: {source}", styles["CapSource"]))
+        block.append(Paragraph(text, styles["CapDesc"]))
+    else:
+        block.append(Spacer(1, 16))
+    return KeepTogether(block)
+
+
+def _pdf_img_section(story: list, imgs: list[Path], heading: str, styles,
+                     avail_width: float, avail_height: float, note: str = "") -> None:
+    if not imgs:
+        return
+    from reportlab.platypus import Paragraph
+
+    story.append(Paragraph(heading, styles["SectionLabel"]))
+    if note:
+        story.append(Paragraph(note, styles["SectionNote"]))
+    for f in imgs:
+        try:
+            story.append(_pdf_img_block(f, styles, avail_width, avail_height))
+        except Exception as exc:
+            log.warning("report (pdf): could not embed %s: %s", f.name, exc)
+
+
+def _build_qc_pdf(species: str, sample: str, qc_dir: Path, now: str, out_path: Path) -> None:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Preformatted, PageBreak
+
+    all_imgs = [f for f in qc_dir.glob("*.png") if f.is_file()]
+    log_imgs = sorted(
+        (f for f in all_imgs if f.stem in _LOG_STEMS),
+        key=lambda f: _img_sort_key(f.name, _IMG_ORDER_LOGS),
+    )
+    per_rep_imgs = sorted(
+        (f for f in all_imgs if f.stem in _PER_REPLICATE_STEMS),
+        key=lambda f: _img_sort_key(f.name, _IMG_ORDER_PER_REPLICATE),
+    )
+    sample_imgs = sorted(
+        (f for f in all_imgs
+        if f.stem not in _PER_REPLICATE_STEMS and f.stem not in _LOG_STEMS),
+        key=lambda f: _img_sort_key(f.name, _IMG_ORDER),
+    )
+    txts = sorted(
+        f for f in qc_dir.iterdir()
+        if f.is_file() and f.suffix in (".txt", ".tsv", ".csv")
+    )
+
+    margin = 48
+    doc = SimpleDocTemplate(
+        str(out_path), pagesize=letter,
+        leftMargin=margin, rightMargin=margin, topMargin=margin, bottomMargin=margin,
+    )
+    avail_width = letter[0] - 2 * margin
+    avail_height = letter[1] - 2 * margin
+
+    styles = _pdf_styles()
+    story = [
+        Paragraph("QC Report", styles["RptTitle"]),
+        Paragraph(f"Homerun Pipeline &mdash; {species}/{sample}", styles["RptMeta"]),
+        Paragraph(f"Generated {now}", styles["RptMeta"]),
+        Spacer(1, 12),
+    ]
+
+    _pdf_img_section(story, log_imgs, "Pipeline Logs", styles, avail_width, avail_height,
+                     note="Trim and alignment tool summaries, one row per replicate.")
+    _pdf_img_section(story, sample_imgs, "Sample-Level QC", styles, avail_width, avail_height)
+    _pdf_img_section(
+        story, per_rep_imgs, "Per-Replicate QC", styles, avail_width, avail_height,
+        note=("Generated from each individual replicate's own TagDir, not the "
+              "merged combo library above — useful for spotting a problem "
+              "replicate before it gets averaged away."),
+    )
+
+    if txts:
+        story.append(Paragraph("Data Files", styles["SectionLabel"]))
+        for f in txts:
+            try:
+                content = f.read_text(errors="replace")
+            except Exception as exc:
+                log.warning("report (pdf): could not read %s: %s", f.name, exc)
+                continue
+            # Preformatted's built-in fonts render a literal tab character as
+            # a missing-glyph black box (same failure mode as unsupported
+            # unicode chars) — expand to spaces first so TSV/CSV content is
+            # actually legible instead of a row of black squares.
+            content = content.expandtabs(4)
+            story.append(Paragraph(f.name, styles["DataHeading"]))
+            story.append(Preformatted(content, styles["DataBody"]))
+
+    if len(story) <= 4:
+        story.append(Paragraph("No QC files found.", styles["RptMeta"]))
+
+    doc.build(story)
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def run_report(cfg) -> None:
@@ -339,6 +527,7 @@ def run_report(cfg) -> None:
         return
 
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    warned_missing_reportlab = False
 
     for species, sample in samples:
         qc_dir = cfg.sample_qc(species, sample)
@@ -350,7 +539,19 @@ def run_report(cfg) -> None:
             log.info("report: no QC files for %s/%s — skipping", species, sample)
             continue
 
-        out = qc_dir / "qc_report.html"
-        out.write_text(_build_qc_html(species, sample, qc_dir, now), encoding="utf-8")
+        html_out = qc_dir / "qc_report.html"
+        html_out.write_text(_build_qc_html(species, sample, qc_dir, now), encoding="utf-8")
         log.info("report: %s/%s/QC/qc_report.html (%d image(s), %d data file(s))",
                  species, sample, len(qc_imgs), len(qc_txts))
+
+        pdf_out = qc_dir / "qc_report.pdf"
+        try:
+            _build_qc_pdf(species, sample, qc_dir, now, pdf_out)
+            log.info("report: %s/%s/QC/qc_report.pdf", species, sample)
+        except ImportError:
+            if not warned_missing_reportlab:
+                log.warning(_pdf_import_error_hint())
+                warned_missing_reportlab = True
+        except Exception as exc:
+            log.warning("report: could not write qc_report.pdf for %s/%s: %s",
+                       species, sample, exc)

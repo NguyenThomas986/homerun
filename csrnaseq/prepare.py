@@ -112,6 +112,29 @@ def _stage_one(cfg, src: Path) -> None:
     log.info("stage: moved %s -> %s/", src.name, dst_dir)
     return dst
 
+
+def wipe_outputs(cfg, keep_raw: bool = True) -> None:
+    """Delete every existing per-sample output dir (Trimmed/Aligned/TagDirs/
+    bedGraphs/TSS/QC) so --force performs a clean rerun instead of relying
+    on each step's own done()-based skip logic, which can go stale (wrong
+    filename, wrong path, etc.) between pipeline versions. RawData/ is never
+    touched — regardless of --force, raw input is never deleted.
+
+    Must be called at most ONCE per invocation of submit_array.sh, from
+    inside prepare.prepare() only — every other job in the pipeline must be
+    invoked with --skip-prepare so this never runs twice concurrently.
+    """
+    import shutil
+    removed = []
+    for name in OUTPUT_DIR_NAMES:  # Trimmed, Aligned, TagDirs, bedGraphs, TSS, QC
+        for d in sorted(cfg.project.glob(f"*/*/{name}")):
+            if d.is_dir():
+                shutil.rmtree(d)
+                removed.append(d)
+    for p in removed:
+        log.info("  --force: removed %s", p.relative_to(cfg.project))
+    log.info("--force: wiped %d output dir(s); RawData/ untouched.", len(removed))
+
 def copy_raw(cfg) -> None:
     """Copy FASTQs matched by cfg.copy_src directly into their nested RawData/ dirs.
 
@@ -246,6 +269,8 @@ def write_config_summary(cfg) -> None:
 
 def prepare(cfg) -> None:
     log.info("=== PREPARE: folders / stage loose / raw copy / STARIndex ===")
+    if getattr(cfg, "force", False):
+        wipe_outputs(cfg)
     validate_gtf(cfg)
     setup_dirs(cfg)
     stage_loose_fastqs(cfg)
