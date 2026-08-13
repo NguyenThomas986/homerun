@@ -15,10 +15,6 @@ OPTIONAL — enables extra features when set:
   CSRNA_GTF            path to a GTF annotation file. Only needed for the
                        'ritrie' step (RIT/RIE QC metric); without it, ritrie
                        is skipped with a log message rather than failing.
-  CSRNA_CLEANUP_INTERMEDIATES
-                       "1"/"true"/"yes"/"on" to delete each sample's
-                       Trimmed/ and Aligned/ directories once QC has been
-                       generated from them. Off by default.
 """
 from __future__ import annotations
 
@@ -32,13 +28,6 @@ def _env(name: str, default):
     return v if v not in (None, "") else default
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    v = os.getenv(name)
-    if v in (None, ""):
-        return default
-    return v.strip().lower() in ("1", "true", "yes", "on")
-
-
 def _pick(args, attr, env_name, default):
     """Precedence: explicit CLI flag (if given) > CSRNA_* env var > built-in default.
 
@@ -49,17 +38,6 @@ def _pick(args, attr, env_name, default):
     if cli is not None:
         return cli
     return _env(env_name, default)
-
-
-def _pick_bool(args, attr, env_name, default: bool) -> bool:
-    """Same precedence as _pick, but for boolean flags backed by an
-    argparse action="store_true" (default=None so 'not passed' is
-    distinguishable from 'passed as False') and a CSRNA_* env var that
-    needs string→bool coercion rather than being taken as-is."""
-    cli = getattr(args, attr, None) if args is not None else None
-    if cli is not None:
-        return bool(cli)
-    return _env_bool(env_name, default)
 
 
 @dataclass
@@ -88,6 +66,16 @@ class Config:
     trim_min: str = "20"
     trim_max: str = "58"
 
+    # Trimming (homerTools, paired-end totalRNA via -pe) — separate min/max
+    # from trim_min/trim_max above: those are tuned for short csRNA/sRNA
+    # (capped/small-RNA) reads, whereas totalRNA is standard mRNA-seq with
+    # much longer reads, so the same 20/58nt window would wrongly truncate
+    # or drop good totalRNA reads. -max here just caps/truncates
+    # (homerTools never drops a read for being too long), so the default is
+    # set high enough to be a no-op for any realistic Illumina read length.
+    totalrna_trim_min: str = "20"
+    totalrna_trim_max: str = "1000"
+
     # TSS calling / browser tracks
     ntag_threshold: str = "7"
     skip_chr: str = "chrEBV"          # "" to skip nothing
@@ -106,10 +94,6 @@ class Config:
 
     # STARIndex auto-download (only used when aligner == "star" and genome_index is missing)
     starindex_url: str = ""           # set via CSRNA_STARINDEX_URL in config.env
-
-    # QC housekeeping
-    cleanup_intermediates: bool = False   # delete Trimmed/Aligned after QC generation
-    force: bool = False                   # --force/--overwrite: wipe existing outputs in prepare()
 
     # ── Derived directories ───────────────────────────────────────────────────
     # NOTE: RawData/Trimmed/Aligned/TagDirs/bedGraphs/RITRIE/QC/TSS are all
@@ -145,22 +129,32 @@ class Config:
         return self.sample_dir(species, sample) / "Aligned"
 
     def leaf_tagdir(self, species: str, sample: str, leaf_name: str) -> Path:
-        """Species/Sample/TagDirs/<leaf_name> — one per individual replicate,
-        e.g. 'csRNA_r1'. No assay-named subfolder anymore, so leaf_name alone
-        is enough to build the path (assay is only encoded in its name)."""
-        return self.sample_dir(species, sample) / "TagDirs" / leaf_name
+        """Species/Sample/TagDirs/<sample>_<leaf_name> — one per individual
+        replicate, e.g. 'IMR90_csRNA_r1'. Sample name prefixed onto the
+        directory's OWN name (not just its parent path) so a TagDir is
+        self-identifying if it's ever copied, symlinked, or opened directly
+        in HOMER/IGV outside its Species/Sample/ context — 'csRNA_r1' alone
+        is ambiguous the moment two samples both have a csRNA replicate 1,
+        which 'IMR90_csRNA_r1' vs. 'K562_csRNA_r1' isn't."""
+        return self.sample_dir(species, sample) / "TagDirs" / f"{sample}_{leaf_name}"
 
     def combo_tagdir(self, species: str, sample: str, assay: str) -> Path:
-        """Species/Sample/TagDirs/<assay>-combo — merged-replicate TagDir."""
-        return self.sample_dir(species, sample) / "TagDirs" / f"{assay}-combo"
+        """Species/Sample/TagDirs/<sample>_<assay>-combo — merged-replicate
+        TagDir, e.g. 'IMR90_csRNA-combo'. Same self-identifying rationale as
+        leaf_tagdir above."""
+        return self.sample_dir(species, sample) / "TagDirs" / f"{sample}_{assay}-combo"
 
     def leaf_bedgraph(self, species: str, sample: str, leaf_name: str) -> Path:
-        """Species/Sample/bedGraphs/<leaf_name> — one per individual replicate."""
-        return self.sample_dir(species, sample) / "bedGraphs" / leaf_name
+        """Species/Sample/bedGraphs/<sample>_<leaf_name> — one per individual
+        replicate. Named to match its source TagDir (bedgraphs.py builds this
+        folder name directly from the TagDir it came from), so the two stay
+        in lockstep rather than needing separately-maintained naming logic."""
+        return self.sample_dir(species, sample) / "bedGraphs" / f"{sample}_{leaf_name}"
 
     def combo_bedgraph(self, species: str, sample: str, assay: str) -> Path:
-        """Species/Sample/bedGraphs/<assay>-combo — merged-replicate bedGraph."""
-        return self.sample_dir(species, sample) / "bedGraphs" / f"{assay}-combo"
+        """Species/Sample/bedGraphs/<sample>_<assay>-combo — merged-replicate
+        bedGraph, matching its source TagDir's name."""
+        return self.sample_dir(species, sample) / "bedGraphs" / f"{sample}_{assay}-combo"
 
     def sample_qc(self, species: str, sample: str) -> Path:
         """Species/Sample/QC — one QC dir per sample, covering all assays."""
@@ -214,6 +208,10 @@ def load_config(args=None) -> Config:
                           "AGATCGGAAGAGCACACGTCT"),
         trim_min=_pick(args, "trim_min", "CSRNA_TRIM_MINLEN", "20"),
         trim_max=_pick(args, "trim_max", "CSRNA_TRIM_MAXLEN", "58"),
+        totalrna_trim_min=_pick(args, "totalrna_trim_min",
+                                "CSRNA_TOTALRNA_TRIM_MINLEN", "20"),
+        totalrna_trim_max=_pick(args, "totalrna_trim_max",
+                                "CSRNA_TOTALRNA_TRIM_MAXLEN", "1000"),
         ntag_threshold=_pick(args, "ntag_threshold", "CSRNA_NTAG_THRESHOLD", "7"),
         skip_chr=_pick(args, "skip_chr", "CSRNA_SKIP_CHR", "chrEBV"),
         # ── Env-only (no flags) ──────────────────────────────────────────────
@@ -223,8 +221,4 @@ def load_config(args=None) -> Config:
         distal_col=_env("CSRNA_DISTAL_COL", "Promoter Proximal/Distal"),
         log_path=_pick(args, "log_path", "CSRNA_LOG", ""),
         starindex_url=_env("CSRNA_STARINDEX_URL", ""),
-        # ── QC housekeeping (flag > env > default) ───────────────────────────
-        cleanup_intermediates=_pick_bool(args, "cleanup_intermediates",
-                                         "CSRNA_CLEANUP_INTERMEDIATES", False),
-        force=_pick_bool(args, "force", "CSRNA_FORCE", False),               # --force/--overwrite: wipe existing outputs in prepare()
     )

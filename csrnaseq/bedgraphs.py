@@ -14,11 +14,16 @@ from .utils import run, log, done, assay_of_leaf
 
 def _assay_of_tagdir(name: str) -> str | None:
     """Recover the assay from a TagDir's own name, since there's no longer a
-    per-assay parent folder to read it off of. Combo dirs are literally
-    '<assay>-combo'; leaf dirs (e.g. 'csRNA_r1') are classified the same way
-    assay_of_leaf() already classifies any other leaf name."""
+    per-assay parent folder to read it off of. TagDir names now carry a
+    <sample>_ prefix (e.g. 'IMR90_csRNA-combo', 'IMR90_csRNA_r1' — see
+    Config.leaf_tagdir/combo_tagdir), so a plain '-combo' strip alone would
+    leave the sample prefix stuck to the assay ('IMR90_csRNA' instead of
+    'csRNA'). Strip '-combo' first if present, then run the same
+    position-independent token search assay_of_leaf() already uses for
+    leaf names — it already correctly ignores non-assay tokens (species,
+    sample, condition), so it handles the sample-prefixed combo case too."""
     if name.endswith("-combo"):
-        return name[: -len("-combo")]
+        name = name[: -len("-combo")]
     return assay_of_leaf(name)
 
 
@@ -63,8 +68,8 @@ def run_bedgraphs(cfg, group=None) -> None:
         bedgraph_dir = sample_dir / "bedGraphs" / td.name
         bedgraph_dir.mkdir(parents=True, exist_ok=True)
         style = "rnaseq" if assay == "totalRNA" else "tss"
-        pos = bedgraph_dir / "posStrand.bedGraph.gz"
-        neg = bedgraph_dir / "negStrand.bedGraph.gz"
+        pos = bedgraph_dir / "posStrand.bedGraph"
+        neg = bedgraph_dir / "negStrand.bedGraph"
 
         if not done(pos):
             run(f"makeUCSCfile {td} -style {style} -strand + {skip}-o {pos}",
