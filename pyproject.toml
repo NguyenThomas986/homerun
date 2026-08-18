@@ -15,6 +15,7 @@ dependencies = [
     "numpy",
     "matplotlib",
     "seaborn",
+    "reportlab"
 ]
 
 [project.scripts]
