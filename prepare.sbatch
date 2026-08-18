@@ -7,7 +7,7 @@ set -euo pipefail
 # Args from submit_array.sh: <conda_module> <conda_env> <project> [python flags...]
 CONDA_MODULE="$1"; CONDA_ENV="$2"; PROJECT="$3"; PKG_DIR="$4"; shift 4
 
-# Make `python -m csrnaseq` importable without pip install (repo dir on path)
+# Make `python -m homerun` importable without pip install (repo dir on path)
 export PYTHONPATH="${PKG_DIR}:${PYTHONPATH:-}"
 
 module load "${CONDA_MODULE}"
@@ -18,5 +18,5 @@ mkdir -p "${PROJECT}/logs_slurm"
 LOG="${PROJECT}/logs_slurm/prepare_${SLURM_JOB_ID}.log"
 
 echo "[$(date)] prepare on $(hostname)"
-python -m csrnaseq --only-prepare --log-path "${LOG}" "$@"
+python -m homerun --only-prepare --log-path "${LOG}" "$@"
 echo "[$(date)] prepare done"

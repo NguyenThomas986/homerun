@@ -8,7 +8,7 @@ set -euo pipefail
 # Args from submit_array.sh: <conda_module> <conda_env> <project> [python flags...]
 CONDA_MODULE="$1"; CONDA_ENV="$2"; PROJECT="$3"; PKG_DIR="$4"; shift 4
 
-# Make `python -m csrnaseq` importable without pip install (repo dir on path)
+# Make `python -m homerun` importable without pip install (repo dir on path)
 export PYTHONPATH="${PKG_DIR}:${PYTHONPATH:-}"
 
 module load "${CONDA_MODULE}"
@@ -24,6 +24,6 @@ for t in homerTools python; do
 done
 
 echo "[$(date)] align task ${SLURM_ARRAY_TASK_ID} on $(hostname), ${SLURM_CPUS_PER_TASK:-?} threads"
-python -m csrnaseq --sample-index "${SLURM_ARRAY_TASK_ID}" --steps trim align \
+python -m homerun --sample-index "${SLURM_ARRAY_TASK_ID}" --steps trim align \
        --skip-prepare --log-path "${LOG}" "$@"
 echo "[$(date)] align task ${SLURM_ARRAY_TASK_ID} done"

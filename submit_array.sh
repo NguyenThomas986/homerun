@@ -3,12 +3,12 @@
 set -euo pipefail
 
 # PYTHONPATH set up front (not just after arg parsing) so --help can shell
-# out to `python -m csrnaseq --help` and show every flag valid after `--`.
+# out to `python -m homerun --help` and show every flag valid after `--`.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}"
 
 usage() {
-    python -m csrnaseq --help 2>/dev/null || echo "(activate your conda env for the csrnaseq flag list)"
+    python -m homerun --help 2>/dev/null || echo "(activate your conda env for the homerun flag list)"
     exit "${1:-0}"
 }
 
@@ -51,7 +51,7 @@ miss=""
 
 # Find the .sbatch job files (they sit next to this script)
 # (SCRIPT_DIR/PYTHONPATH already set near the top of the script, before arg
-# parsing, so --help can shell out to `python -m csrnaseq --help`.)
+# parsing, so --help can shell out to `python -m homerun --help`.)
 cd "${SCRIPT_DIR}"
 
 # Activate env so the login-node python calls below work
@@ -76,28 +76,28 @@ PY_ARGS=( --project "${PROJECT}" --aligner "${ALIGNER}"
 [ ${#EXTRA[@]} -gt 0 ] && PY_ARGS+=( "${EXTRA[@]}" )
 
 # Stage loose FASTQs, then count samples
-python -m csrnaseq "${PY_ARGS[@]}" --stage-raw
-N=$(python -m csrnaseq "${PY_ARGS[@]}" --count-samples)
+python -m homerun "${PY_ARGS[@]}" --stage-raw
+N=$(python -m homerun "${PY_ARGS[@]}" --count-samples)
 if [ "${N}" -eq 0 ] && [ -n "${COPY_SRC}" ]; then
     echo "RawData empty — running prepare now to copy from ${COPY_SRC} ..."
     # NOTE: --only-prepare also runs ensure_starindex(); if --genome-index
     # already points at an existing, non-empty directory (the normal case)
     # this is a no-op, but if it's missing AND CSRNA_STARINDEX_URL is set,
     # this will download the STARIndex tarball on the login node.
-    python -m csrnaseq "${PY_ARGS[@]}" --only-prepare
-    N=$(python -m csrnaseq "${PY_ARGS[@]}" --count-samples)
+    python -m homerun "${PY_ARGS[@]}" --only-prepare
+    N=$(python -m homerun "${PY_ARGS[@]}" --count-samples)
 fi
 [ "${N}" -ge 1 ] || { echo "ERROR: no *_R1* FASTQs in ${PROJECT}/RawData"; exit 1; }
 echo "Found ${N} sample file(s) → array 0-$((N-1))"
 
-S=$(python -m csrnaseq "${PY_ARGS[@]}" --count-groups)
+S=$(python -m homerun "${PY_ARGS[@]}" --count-groups)
 [ "${S}" -ge 1 ] || { echo "ERROR: no Species/Sample groups found under ${PROJECT}"; exit 1; }
 echo "Found ${S} Species/Sample group(s) → array 0-$((S-1))"
 
 # ── Refuse to submit anything if this run would touch nothing new ─────────────
 # Must run BEFORE the first sbatch call below — once jobs are queued it's too
 # late to stop them. Add --force/--overwrite (after `--`) to override.
-python -m csrnaseq "${PY_ARGS[@]}" --check-rerun
+python -m homerun "${PY_ARGS[@]}" --check-rerun
 
 # ── SLURM options ─────────────────────────────────────────────────────────────
 SOPTS="--partition=${PARTITION} --mail-type=ALL"
