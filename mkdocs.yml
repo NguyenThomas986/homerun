@@ -35,3 +35,6 @@ nav:
   - Development:
       - Testing: testing.md
       - Contributing: contributing.md
+
+plugins:
+  - search
