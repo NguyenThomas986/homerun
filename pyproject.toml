@@ -23,3 +23,8 @@ homerun = "homerun.pipeline:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[project.urls]
+Homepage = "https://thomasmnguyen.dev/homerun/"
+Repository = "https://github.com/NguyenThomas986/homerun"
+Issues = "https://github.com/NguyenThomas986/homerun/issues"
