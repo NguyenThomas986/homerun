@@ -1,21 +1,37 @@
-site_name: My Docs
+site_name: HOMERun
 site_url: https://thomasmnguyen.dev/homerun/
+
 theme:
   name: material
-  palette: 
-  # dark mode
+
+  palette:
     - scheme: slate
       toggle:
         icon: material/weather-sunny
-        name: Dark mode
+        name: Light mode
       primary: green
       accent: deep purple
 
-  # light mode
     - scheme: default
       toggle:
         icon: material/weather-night
-        name: Light mode
+        name: Dark mode
       primary: blue
       accent: deep orange
 
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: installation.md
+      - Quick Start: quickstart.md
+  - Usage:
+      - Input Files: input-files.md
+      - Configuration: configuration.md
+      - Pipeline: pipeline.md
+      - SLURM: slurm.md
+  - QC & Reports:
+      - Quality Control: qc.md
+      - Reports: reports.md
+  - Development:
+      - Testing: testing.md
+      - Contributing: contributing.md

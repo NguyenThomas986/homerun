@@ -1,17 +1,17 @@
-# Welcome to MkDocs
+# HOMERun
 
-For full documentation visit [mkdocs.org](https://www.mkdocs.org).
+HOMERun is a csRNA-seq analysis pipeline designed for running on HPC clusters.
 
-## Commands
+It automates the analysis workflow from raw FASTQ files through alignment, tag directories, TSS analysis, quality control, stability analysis, and reporting.
 
-* `mkdocs new [dir-name]` - Create a new project.
-* `mkdocs serve` - Start the live-reloading docs server.
-* `mkdocs build` - Build the documentation site.
-* `mkdocs -h` - Print help message and exit.
+## Features
 
-## Project layout
+- Supports STAR and HISAT2
+- Designed for SLURM-based HPC clusters
+- Automated quality control and reporting
+- Supports Excel, CSV, and TSV sample files
+- Parallel processing with SLURM job arrays
 
-    mkdocs.yml    # The configuration file.
-    docs/
-        index.md  # The documentation homepage.
-        ...       # Other markdown pages, images and other files.
+## Getting Started
+
+See the [Installation](installation.md) guide to get started.
