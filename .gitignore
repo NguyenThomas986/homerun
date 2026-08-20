@@ -67,3 +67,7 @@ htmlcov/
 *.err
 slurm-*.out
 slurm-*.err
+
+# SLURM Jobs
+*.sbatch
+*.sh
