@@ -104,7 +104,7 @@ STEP_FUNCS = {
 def build_parser() -> argparse.ArgumentParser:
 
     p = argparse.ArgumentParser(
-        prog="csrnaseq",
+        prog="homerun",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=(
             _BANNER

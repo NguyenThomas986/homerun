@@ -31,12 +31,26 @@ classifiers = [
 ]
 keywords = ["rna-seq", "csrna-seq", "slurm", "hpc", "bioinformatics", "pipeline", "transcription-initiation"]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+]
+ 
+ 
 [project.scripts]
 homerun = "homerun.pipeline:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
 include = ["homerun*"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: tests that are slower than the typical fast unit test (still no external tools/network).",
+]
+
 
 [project.urls]
 Homepage = "https://thomasmnguyen.dev/homerun/"

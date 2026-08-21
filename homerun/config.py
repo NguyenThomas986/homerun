@@ -43,6 +43,7 @@ def _pick(args, attr, env_name, default):
 @dataclass
 class Config:
     project: Path
+    force: bool = False
 
     # ── Aligner (REQUIRED to be set explicitly; no genome is assumed) ─────────
     aligner: str = "star"             # "star" or "hisat2"
@@ -186,6 +187,7 @@ def load_config(args=None) -> Config:
         project_path = Path(_env("CSRNA_PROJECT", os.getcwd())).resolve()
     return Config(
         project=project_path,
+        force=bool(getattr(args, "force", False)),
         # ── Core (flag > env > default) ──────────────────────────────────────
         aligner=_pick(args, "aligner", "CSRNA_ALIGNER", "star").lower(),
         genome_index=_pick(args, "genome_index", "CSRNA_GENOME_INDEX", ""),
