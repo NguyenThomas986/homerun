@@ -2,6 +2,7 @@
 
 <div align="center">
 
+[![CI](https://github.com/NguyenThomas986/homerun/actions/workflows/ci.yml/badge.svg)](https://github.com/NguyenThomas986/homerun/actions/workflows/ci.yml)
 [![Open Issues](https://img.shields.io/github/issues/NguyenThomas986/homerun.svg)](https://github.com/NguyenThomas986/homerun/issues)
 [![Closed Issues](https://img.shields.io/github/issues-closed/NguyenThomas986/homerun.svg)](https://github.com/NguyenThomas986/homerun/issues?q=is%3Aissue+is%3Aclosed)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
