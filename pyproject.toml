@@ -17,12 +17,26 @@ dependencies = [
     "seaborn>=0.12",
     "reportlab>=4.0"
 ]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+keywords = ["rna-seq", "csrna-seq", "slurm", "hpc", "bioinformatics", "pipeline", "transcription-initiation"]
 
 [project.scripts]
 homerun = "homerun.pipeline:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
+include = ["homerun*"]
 
 [project.urls]
 Homepage = "https://thomasmnguyen.dev/homerun/"
