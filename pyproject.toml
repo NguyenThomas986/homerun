@@ -36,11 +36,12 @@ test = [
     "pytest>=8.0",
 ]
  
- 
+
 [project.scripts]
 homerun = "homerun.pipeline:main"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["homerun*"]
 
 [tool.pytest.ini_options]
