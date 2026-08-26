@@ -25,6 +25,7 @@ nav:
       - Installation: installation.md
       - Quick Start: quickstart.md
   - Usage:
+      - CLI Reference: cli.md
       - Input Files: input-files.md
       - Configuration: configuration.md
       - Pipeline: pipeline.md
@@ -32,11 +33,30 @@ nav:
   - QC & Reports:
       - Quality Control: qc.md
       - Reports: reports.md
+  - Help:
+      - Report an Issue: issue.md
   - Development:
       - Testing: testing.md
       - Contributing: contributing.md
+    
 
 plugins:
   - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra:
+  announcement: "HOMERun is in alpha — nothing is finalized yet."
 
 copyright: 'HOMERun · <a href="https://labs.wsu.edu/duttke/">Duttke Lab</a> · Washington State University'
