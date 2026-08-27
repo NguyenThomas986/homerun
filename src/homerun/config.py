@@ -51,6 +51,7 @@ class Config:
     gtf: str = ""                     # GTF annotation, only needed for the ritrie step (OPTIONAL)
 
     threads: int = 20
+    force:bool = False
 
     # Alignment — STAR (csRNA-tuned defaults; override via flag/env if needed)
     star_filter_multimap: str = "10000"   # --outFilterMultimapNmax
@@ -194,6 +195,7 @@ def load_config(args=None) -> Config:
         project_path = Path(_env("CSRNA_PROJECT", os.getcwd())).resolve()
     return Config(
         project=project_path,
+        force=bool(_pick(args, "force", "CSRNA_FORCE", False)),
         # ── Core (flag > env > default) ──────────────────────────────────────
         aligner=_pick(args, "aligner", "CSRNA_ALIGNER", "star").lower(),
         genome_index=_pick(args, "genome_index", "CSRNA_GENOME_INDEX", ""),
