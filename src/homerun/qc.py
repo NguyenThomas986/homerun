@@ -87,8 +87,9 @@ def _leaf_tagdirs_for_sample(cfg, species, sample):
 # ── Existing plots ────────────────────────────────────────────────────────────
 
 def qc_read_length(cfg, species, sample, qc_dir) -> None:
-    combos = [d for d in _all_combos(cfg, species, sample)
-              if (d / "tagLengthDistribution.txt").exists()]
+    combos = [d for assay in ("csRNA", "sRNA")
+              for d in [_combo(cfg, species, sample, assay)]
+              if d and (d / "tagLengthDistribution.txt").exists()]
     if not combos:
         log.info("QC read-length: no tagLengthDistribution.txt yet."); return
     plt.figure(figsize=(12, 6))
@@ -102,7 +103,7 @@ def qc_read_length(cfg, species, sample, qc_dir) -> None:
 
 
 def qc_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
-    have = {a: d for a in _ASSAYS
+    have = {a: d for a in ("csRNA", "sRNA")
             if (d := _combo(cfg, species, sample, a)) and (d / "tagFreqUniq.txt").exists()}
     if not have:
         log.info("QC nt-freq: no tagFreqUniq.txt yet."); return
@@ -118,7 +119,7 @@ def qc_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
 
 
 def qc_autocorrelation(cfg, species, sample, qc_dir) -> None:
-    have = {a: d for a in _ASSAYS
+    have = {a: d for a in ("csRNA", "sRNA")
             if (d := _combo(cfg, species, sample, a)) and (d / "tagAutocorrelation.txt").exists()}
     if not have:
         log.info("QC autocorrelation: no tagAutocorrelation.txt yet."); return
@@ -739,8 +740,8 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
                 trim_rows.append({
                     "Replicate": leaf_name, "Tool": "homerTools",
                     "Input Reads": total,
-                    "% Retained": round(100 - dimer_pct, 2),
-                    "% Removed": round(dimer_pct, 2),
+                    "% Retained Reads": round(100 - dimer_pct, 2),
+                    "% Adapters": round(dimer_pct, 2),
                 })
 
         # ── alignment ──
@@ -772,7 +773,7 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
 
     if trim_rows:
         _render_log_table(pd.DataFrame(trim_rows).set_index("Replicate"),
-                          "Trim Summary", qc_dir / "trim_stats_summary.png")
+                          "Adapter Trimming", qc_dir / "trim_stats_summary.png")
         log.info("QC: trim_stats_summary.png (%d replicate(s))", len(trim_rows))
     else:
         log.info("QC trim summary: no trim logs found for %s/%s", species, sample)
@@ -831,6 +832,31 @@ def qc_distal_proximal_pie(cfg, species, sample, qc_dir) -> None:
     log.info("QC: distal_proximal_pie.png (%s/%s)", species, sample)
 
 
+# ── QC raw-log cleanup ───────────────────────────────────────────────────────
+
+def _remove_qc_raw_log_copies(qc_dir) -> None:
+    """Remove raw trimming/alignment .txt copies from QC/ after summaries are rendered.
+
+    The PNG summary tables are retained. This only removes the copied raw
+    homerTools .lengths.txt and STAR/hisat2 mapping-stat text files.
+    """
+    patterns = (
+        "*.lengths.txt",
+        "*_mappingstats.txt",
+        "*.Log.final.out.txt",
+    )
+    removed = 0
+    for pattern in patterns:
+        for path in qc_dir.glob(pattern):
+            try:
+                path.unlink()
+                removed += 1
+            except Exception as exc:
+                log.warning("QC cleanup: could not remove %s: %s", path, exc)
+    if removed:
+        log.info("QC cleanup: removed %d raw trim/alignment .txt file(s)", removed)
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def _run_qc_one(cfg, species, sample) -> None:
@@ -864,6 +890,10 @@ def _run_qc_one(cfg, species, sample) -> None:
     qc_nucleotide_freq_per_replicate(cfg, species, sample, qc_dir)
     qc_autocorrelation_per_replicate(cfg, species, sample, qc_dir)
     qc_tagdir_stats_per_replicate(cfg, species, sample, qc_dir)
+
+    # Keep the summary PNGs, but don't leave copied raw trim/alignment logs
+    # in the QC directory.
+    _remove_qc_raw_log_copies(qc_dir)
 
 
 def run_qc(cfg) -> None:

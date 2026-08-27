@@ -43,7 +43,6 @@ def _pick(args, attr, env_name, default):
 @dataclass
 class Config:
     project: Path
-    force: bool = False
 
     # ── Aligner (REQUIRED to be set explicitly; no genome is assumed) ─────────
     aligner: str = "star"             # "star" or "hisat2"
@@ -117,6 +116,14 @@ class Config:
         """Species/Sample/ — root for everything belonging to one sample."""
         return self.project / species / sample
 
+    def species_sample_dir(self, species: str, sample: str) -> Path:
+        """Alias for sample_dir — some call sites (e.g. qc.py's per-sample
+        logging in run_qc/_run_qc_one) reference this name instead. Kept as
+        a thin forward so both names resolve to the exact same path rather
+        than drifting; once the real call site is confirmed, prefer
+        switching it to sample_dir directly and removing this alias."""
+        return self.sample_dir(species, sample)
+
     def rawdata_dir(self, species: str, sample: str) -> Path:
         """Species/Sample/RawData — every replicate of every assay together."""
         return self.sample_dir(species, sample) / "RawData"
@@ -187,7 +194,6 @@ def load_config(args=None) -> Config:
         project_path = Path(_env("CSRNA_PROJECT", os.getcwd())).resolve()
     return Config(
         project=project_path,
-        force=bool(getattr(args, "force", False)),
         # ── Core (flag > env > default) ──────────────────────────────────────
         aligner=_pick(args, "aligner", "CSRNA_ALIGNER", "star").lower(),
         genome_index=_pick(args, "genome_index", "CSRNA_GENOME_INDEX", ""),
