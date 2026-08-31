@@ -13,13 +13,13 @@ run in parallel across a SLURM array:
                                               replicate's raw SAM files per
                                               assay into a combo TagDir.
 
-Built under Species/Sample/TagDirs/ (all assays of a sample together):
-  • Species/Sample/TagDirs/<assay>-combo  — all replicates of that assay merged
-  • Species/Sample/TagDirs/<leaf_name>     — one tag dir per individual replicate
+Built under Species/TagDirs/ with sample-prefixed directory names:
+  • Species/TagDirs/<sample>_<assay>-combo — all replicates of that assay merged
+  • Species/TagDirs/<sample>_<leaf_name>    — one tag dir per individual replicate
 
 Both are built from the same aligned SAM files, which live in the shared
-Species/Sample/Aligned/ (one folder per sample, not per assay or per
-replicate — see Config.aligned_dir). Since replicates (and assays) no longer
+Species/Aligned/ (one folder per species, not per sample, assay, or
+replicate — see Config.aligned_dir). Since samples, replicates, and assays no longer
 get their own directory, a replicate's SAM is located by filename prefix
 rather than by listing an Aligned/ folder that belongs to just that one
 replicate.
@@ -51,7 +51,7 @@ def _make_tagdir(cmd_input_sams: str, tagdir, assay: str, label: str, cfg) -> No
 
 def _sam_for_r1(cfg, species, sample, r1):
     """The aligned SAM this replicate's R1 produced, in the shared
-    Species/Sample/Aligned/ folder — same naming mapping.py already
+    Species/Aligned/ folder — same naming mapping.py already
     uses (<prefix>.Aligned.out.sam where prefix = r1.name up to '_R1')."""
     prefix = r1.name.split("_R1")[0]
     return cfg.aligned_dir(species, sample) / f"{prefix}.Aligned.out.sam"

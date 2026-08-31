@@ -106,16 +106,18 @@ def test_force_flag_wired_through_load_config(tmp_path):
 
 def test_sample_dir_layout(tmp_path):
     cfg = Config(project=tmp_path)
-    assert cfg.sample_dir("homo_sapiens", "K562") == tmp_path / "homo_sapiens" / "K562"
+    assert cfg.species_dir("homo_sapiens") == tmp_path / "homo_sapiens"
+    assert cfg.sample_dir("homo_sapiens", "K562") == tmp_path / "homo_sapiens"
 
 
-def test_flat_per_sample_dirs_have_no_assay_subfolder(tmp_path):
+def test_flat_species_category_dirs(tmp_path):
     cfg = Config(project=tmp_path)
-    base = tmp_path / "homo_sapiens" / "K562"
+    base = tmp_path / "homo_sapiens"
     assert cfg.rawdata_dir("homo_sapiens", "K562") == base / "RawData"
     assert cfg.trimmed_dir("homo_sapiens", "K562") == base / "Trimmed"
     assert cfg.aligned_dir("homo_sapiens", "K562") == base / "Aligned"
-    assert cfg.sample_qc("homo_sapiens", "K562") == base / "QC"
+    assert cfg.species_qc("homo_sapiens") == base / "QC"
+    assert cfg.sample_qc("homo_sapiens", "K562") == base / "QC" / "K562"
     assert cfg.sample_tss("homo_sapiens", "K562") == base / "TSS"
 
 
@@ -142,7 +144,7 @@ def test_ritrie_paths(tmp_path):
     species_exons = cfg.species_ritrie_gtf_exons("homo_sapiens")
     assert species_exons == tmp_path / "homo_sapiens" / "RITRIE" / "parsed_gtf_exons.tsv"
     leaf = cfg.leaf_ritrie("homo_sapiens", "IMR90", "csRNA_r1")
-    assert leaf == tmp_path / "homo_sapiens" / "IMR90" / "RITRIE" / "csRNA_r1"
+    assert leaf == tmp_path / "homo_sapiens" / "RITRIE" / "IMR90_csRNA_r1"
 
 
 def test_logs_dir_and_starindex_properties(tmp_path):

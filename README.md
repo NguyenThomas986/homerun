@@ -25,56 +25,42 @@ This repository is the SLURM-oriented wrapper around the Python package in [csrn
 
 ## Project structure
 
-Projects are organized as a nested `Species/Sample/Leaf` directory layout. Rather than writing outputs to shared top-level directories, each leaf run generates and keeps its own intermediate outputs alongside it, and each sample keeps its own combined/downstream outputs one level up.
+Projects use a compact `Species/<category>` layout. Species and sample names are parsed from FASTQ filenames; sample identity remains in filenames and TagDir names, so multiple samples can safely share each species-level category directory.
 
-Species and sample names are parsed straight out of the FASTQ filenames. For example, `homo_sapiens_K562_csRNA-r1_DB422_S1_R1_001.fastq.gz` and `homo_sapiens_K562_csRNA-r2_DB423_S2_R1_001.fastq.gz` become species `homo_sapiens`, sample `K562`, with leaves `csRNA_r1` and `csRNA_r2`. Each distinct assay/replicate combination becomes its own leaf directory, and paired-end reads (files sharing a leaf but differing only in `_R1`/`_R2`) are staged into that same leaf.
+For example, `homo_sapiens_K562_csRNA-r1_DB422_S1_R1_001.fastq.gz` becomes species `homo_sapiens`, sample `K562`, and leaf `csRNA_r1`.
 
 This produces a tree like:
 
     homerun_test/
     ├── config.txt                        # auto-generated summary of every run's config + samples
     └── homo_sapiens/
-        └── K562/
-            ├── RNA_r1/                    # paired-end (R1 + R2)
-            │   ├── RawData/
-            │   ├── Trimmed/
-            │   ├── Aligned/
-            │   └── TagDir/
-            ├── csRNA_r1/
-            │   ├── RawData/
-            │   ├── Trimmed/
-            │   ├── Aligned/
-            │   └── TagDir/
-            ├── csRNA_r2/
-            │   └── ...
-            ├── csRNA-combo/               # combined TagDir/bedGraph across csRNA_r1 + csRNA_r2
-            │   ├── TagDir/
-            │   └── bedGraph/
-            ├── sRNA_r1/
-            │   └── ...
-            ├── sRNA_r2/
-            │   └── ...
-            ├── sRNA-combo/
-            │   ├── TagDir/
-            │   └── bedGraph/
-            ├── TSS/                       # called TSRs for this sample
-            ├── QC/                        # QC plots, ritrie output, qc_report.html
-            └── QC/qc_report.html
+        ├── RawData/                       # all staged FASTQs for the species
+        ├── Trimmed/                       # sample-prefixed trimmed reads
+        ├── Aligned/                       # sample-prefixed SAMs and mapping logs
+        ├── TagDirs/                       # K562_csRNA_r1, K562_csRNA-combo, ...
+        ├── bedGraphs/                     # names match their source TagDirs
+        ├── TSS/                           # K562.tss.txt, IMR90.tss.txt, ...
+        ├── RITRIE/                        # sample-prefixed working directories
+        └── QC/
+            ├── csRNA_nucleotide_divergence_heatmap.png
+            ├── sRNA_nucleotide_divergence_heatmap.png
+            ├── K562/                     # detailed sample report and plots
+            │   └── qc_report.html
+            └── IMR90/
+                └── qc_report.html
 
-- **Trimmed reads** are written into each leaf's local `Trimmed/` directory.
-- **Alignments** are written into each leaf's local `Aligned/` directory.
-- **Leaf-level TagDirs** are built inside each replicate leaf (e.g. `K562/csRNA_r1/TagDir/`).
-- **Combined TagDirs/bedGraphs** are built as their own sibling directory per assay, named `<assay>-combo/` (e.g. `K562/csRNA-combo/`, `K562/sRNA-combo/`), merging that assay's replicate leaves.
-- **TSS, QC, RITRIE, and reporting** are built within each sample's directory (e.g. `homo_sapiens/K562/`), downstream of the combo TagDirs.
-- **Reporting** is simplified to a single `qc_report.html` per sample.
+- **Raw, trimmed, and aligned files** share species-level category folders and remain self-identifying through their filenames.
+- **Leaf and combo TagDirs/bedGraphs** are sample-prefixed to prevent collisions.
+- **TSS outputs** share `Species/TSS/` and use sample-prefixed filenames.
+- **QC** provides compact cross-sample A/C/G/T divergence heatmaps in `Species/QC/`, plus detailed reports in `Species/QC/<sample>/`.
 - **`config.txt`** at the project root records every config value used for the run (genome, aligner, thresholds, `--gtf`, etc.) and every sample/RawData file discovered — see [Run configuration (config.txt)](#run-configuration-configtxt) below.
 
 ## Typical workflow
 
-1. Create a project directory and place your FASTQ files in it — they'll be parsed and staged into the nested `Species/Sample/Leaf` layout automatically (e.g. `homo_sapiens/K562/csRNA_r1/RawData/`).
+1. Create a project directory and place your FASTQ files in it — they are parsed and staged into `Species/RawData/` automatically (for example, `homo_sapiens/RawData/`).
 2. Run the submission script with the required paths and cluster settings.
 3. Let the prepare, align-array, tagdir/tagdirs-combo-array, tss/bedgraphs-array, and collect stages run in sequence (see dependency graph below).
-4. Inspect the outputs alongside each sample, especially `QC/qc_report.html` and the `TSS/` directory (e.g. `homo_sapiens/K562/QC/qc_report.html`), and check `config.txt` at the project root to confirm what the run was actually configured with.
+4. Inspect the species-level QC heatmaps and each detailed sample report (for example, `homo_sapiens/QC/K562/qc_report.html`), then check `config.txt` to confirm the detected configuration and samples.
 
 ### Job-array dependency graph
 
@@ -176,7 +162,7 @@ path/to/homerun/submit_array.sh \
 
 The controller will:
 
-- parse and stage raw FASTQs into the nested `Species/Sample/Leaf` project layout (e.g. `homo_sapiens_K562_csRNA-r1_DB422_S1_R1_001.fastq.gz` → `homo_sapiens/K562/csRNA_r1/RawData/`)
+- parse and stage raw FASTQs into the compact `Species/RawData/` layout (e.g. `homo_sapiens_K562_csRNA-r1_DB422_S1_R1_001.fastq.gz` → `homo_sapiens/RawData/`)
 - write/refresh `config.txt` at the project root
 - submit a prepare job (which also validates `--gtf` up front, if given)
 - submit a sample-array job for trim + align
@@ -325,7 +311,7 @@ Note: only one of `STAR`/`hisat2` is required, depending on `--aligner`.
 ## Notes
 
 - The repo is built around the `csrnaseq` CLI, so most of the actual processing logic lives in the package under [csrnaseq](csrnaseq).
-- Outputs live per-sample (nested under `Species/Sample/`, e.g. `homo_sapiens/K562/`) rather than in shared top-level directories, and each sample produces a single `qc_report.html` with concise, focused figures.
+- Outputs live in category directories under each species; detailed sample reports live at `Species/QC/<sample>/qc_report.html`, with cross-sample heatmaps directly in `Species/QC/`.
 - Combined TagDirs/bedGraphs are per-assay `<assay>-combo/` directories (e.g. `csRNA-combo`, `sRNA-combo`), not a single catch-all folder — this keeps replicate merges scoped to their own assay.
 - `tagdirs-combo`, `bedgraphs`, and `tss` each run as their own parallel SLURM array (indexed by `--group-index`, one task per Species/Sample) rather than looping serially inside `collect` — see the [job-array dependency graph](#job-array-dependency-graph) above.
 - `config.txt` at the project root is regenerated at the end of every `prepare` run — check it first if a run behaves unexpectedly, to confirm the pipeline actually saw the config/samples you intended.

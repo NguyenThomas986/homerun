@@ -1,8 +1,7 @@
 """QC plots from -combo tag directories, one set per Species/Sample.
 
-Each sample gets its own QC/ dir (Species/Sample/QC/) combining csRNA, sRNA,
-and totalRNA combo TagDirs and that sample's TSS output — instead of one
-flat project-level QC/ mixing every sample together.
+Detailed sample plots live in Species/QC/<sample>/. Cross-sample nucleotide
+divergence heatmaps live directly in Species/QC/.
 """
 from __future__ import annotations
 
@@ -49,11 +48,19 @@ def _all_combos(cfg, species, sample):
     return [d for a in _ASSAYS if (d := _combo(cfg, species, sample, a))]
 
 
+def _sample_tss_files(cfg, species, sample, suffix):
+    """Files in shared Species/TSS that belong to exactly one sample."""
+    return sorted(
+        path for path in cfg.sample_tss(species, sample).glob(f"*{suffix}")
+        if path.name.startswith(f"{sample}.")
+    )
+
+
 def _label(d) -> str:
     """Readable name for a TagDir, e.g. 'IMR90_csRNA-combo' or
     'IMR90_csRNA_r1' (see Config.leaf_tagdir/combo_tagdir — the sample name
     is prefixed onto the directory's own name). The tag directory itself is
-    named that (Species/Sample/TagDirs/<name>), not nested one level further
+    named that (Species/TagDirs/<name>), not nested one level further
     under a generic 'TagDir' folder."""
     return d.name
 
@@ -171,7 +178,7 @@ def _median_tags_bar_merged(cfg, species, sample, qc_dir) -> None:
 
 def qc_threshold_optimization(cfg, species, sample, qc_dir) -> None:
     """Threshold optimization plot from prefix.inputDistribution.txt files."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.inputDistribution.txt"))
+    files = _sample_tss_files(cfg, species, sample, ".inputDistribution.txt")
     if not files:
         log.info("QC threshold: no *.inputDistribution.txt for %s/%s", species, sample); return
 
@@ -208,7 +215,7 @@ def qc_threshold_optimization(cfg, species, sample, qc_dir) -> None:
 
 def qc_tss_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
     """Nucleotide frequency at primary TSS from *.freq.tsv files."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.freq.tsv"))
+    files = _sample_tss_files(cfg, species, sample, ".freq.tsv")
     if not files:
         log.info("QC TSS nt-freq: no *.freq.tsv for %s/%s", species, sample); return
 
@@ -241,7 +248,7 @@ def qc_tss_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
 
 def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
     """Parse findcsRNATSS stats files into a summary table PNG."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.stats.txt"))
+    files = _sample_tss_files(cfg, species, sample, ".stats.txt")
     if not files:
         log.info("QC TSR summary: no *.stats.txt for %s/%s", species, sample); return
 
@@ -298,7 +305,7 @@ def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
 
 def qc_tsr_annotation(cfg, species, sample, qc_dir) -> None:
     """Bar plot of TSR annotation categories from *.tss.txt files."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.tss.txt"))
+    files = _sample_tss_files(cfg, species, sample, ".tss.txt")
     if not files:
         log.info("QC TSR annotation: no *.tss.txt for %s/%s", species, sample); return
 
@@ -797,7 +804,7 @@ def qc_distal_proximal_pie(cfg, species, sample, qc_dir) -> None:
     stability.py's combined stable/unstable+location pie, which only ever
     falls back to showing location when there's no total RNA, so a csRNA/
     sRNA-only sample (no total RNA) still gets this chart."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.tss.txt"))
+    files = _sample_tss_files(cfg, species, sample, ".tss.txt")
     if not files:
         log.info("QC distal/proximal: no *.tss.txt for %s/%s", species, sample)
         return
@@ -857,6 +864,95 @@ def _remove_qc_raw_log_copies(qc_dir) -> None:
         log.info("QC cleanup: removed %d raw trim/alignment .txt file(s)", removed)
 
 
+def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
+    """Create compact species-level A/C/G/T divergence heatmaps.
+
+    Rows are samples, columns are offsets in ``tagFreqUniq.txt``, and each
+    cell is the nucleotide frequency minus that nucleotide's global mean for
+    the species and assay. A fixed +/-0.1 scale keeps colors comparable.
+    """
+    samples = list(samples if samples is not None else iter_samples(cfg))
+    nucleotides = ("A", "C", "G", "T")
+
+    for species in sorted({sp for sp, _sample in samples}):
+        species_samples = sorted(sample for sp, sample in samples if sp == species)
+        qc_root = cfg.species_qc(species)
+
+        for assay in ("csRNA", "sRNA"):
+            matrices: dict[str, dict[str, pd.Series]] = {nt: {} for nt in nucleotides}
+            for sample in species_samples:
+                tagdir = _combo(cfg, species, sample, assay)
+                freq_file = tagdir / "tagFreqUniq.txt" if tagdir else None
+                if freq_file is None or not freq_file.is_file():
+                    continue
+                try:
+                    df = pd.read_csv(freq_file, sep="\t")
+                except Exception as exc:
+                    log.warning("QC nucleotide heatmap: could not read %s: %s", freq_file, exc)
+                    continue
+                if "Offset" not in df.columns:
+                    log.warning("QC nucleotide heatmap: no Offset column in %s", freq_file)
+                    continue
+                df = df.set_index("Offset")
+                for nt in nucleotides:
+                    if nt in df.columns:
+                        matrices[nt][sample] = pd.to_numeric(df[nt], errors="coerce")
+
+            if not any(matrices.values()):
+                log.info("QC nucleotide heatmap: no %s tagFreqUniq.txt files for %s", assay, species)
+                continue
+
+            qc_root.mkdir(parents=True, exist_ok=True)
+            fig, axes = plt.subplots(2, 2, figsize=(18, max(8, 0.45 * len(species_samples) + 7)))
+            for ax, nt in zip(axes.flat, nucleotides):
+                if not matrices[nt]:
+                    ax.axis("off")
+                    ax.set_title(f"{nt} — no data")
+                    continue
+
+                frame = pd.DataFrame(matrices[nt]).T
+                try:
+                    frame = frame.reindex(sorted(frame.columns, key=float), axis=1)
+                except (TypeError, ValueError):
+                    frame = frame.reindex(sorted(frame.columns, key=str), axis=1)
+                mean_frequency = float(np.nanmean(frame.to_numpy(dtype=float)))
+                divergent = frame - mean_frequency
+                divergent.index.name = "Sample"
+                divergent.columns.name = "Offset"
+                divergent.to_csv(
+                    qc_root / f"{assay}_{nt}_nucleotide_divergence.tsv",
+                    sep="\t",
+                )
+
+                tick_every = max(1, len(divergent.columns) // 20)
+                sns.heatmap(
+                    divergent,
+                    cmap="vlag",
+                    center=0,
+                    vmin=-0.1,
+                    vmax=0.1,
+                    xticklabels=tick_every,
+                    yticklabels=True,
+                    ax=ax,
+                    cbar_kws={"label": "Frequency minus global mean"},
+                )
+                ax.set_title(f"{nt} (global mean {mean_frequency:.3f})")
+                ax.set_xlabel("Offset from 5′ tag start")
+                ax.set_ylabel("Sample")
+
+            fig.suptitle(
+                f"{species} {assay} nucleotide-frequency divergence",
+                fontsize=15,
+                y=1.01,
+            )
+            plt.tight_layout()
+            stem = qc_root / f"{assay}_nucleotide_divergence_heatmap"
+            fig.savefig(stem.with_suffix(".png"), dpi=150, bbox_inches="tight")
+            fig.savefig(stem.with_suffix(".svg"), bbox_inches="tight")
+            plt.close(fig)
+            log.info("QC: %s (%d sample(s))", stem.with_suffix(".png"), len(species_samples))
+
+
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 def _run_qc_one(cfg, species, sample) -> None:
@@ -904,3 +1000,4 @@ def run_qc(cfg) -> None:
     for species, sample in samples:
         log.info("QC: %s/%s", species, sample)
         _run_qc_one(cfg, species, sample)
+    qc_nucleotide_divergence_heatmaps(cfg, samples)

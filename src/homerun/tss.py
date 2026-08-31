@@ -3,8 +3,8 @@
 For each sample's csRNA-combo TagDir, uses the matching sRNA-combo as input
 control and, if present, the totalRNA-combo as the -rna reference. The -rna
 reference is optional: without total RNA the TSRs are still called, just
-without stable/unstable assignment. Output lands in Species/Sample/TSS/,
-one TSS per sample (not per assay).
+without stable/unstable assignment. Output lands in the shared Species/TSS/,
+with sample-prefixed files (one TSS call per sample, not per assay).
 """
 from __future__ import annotations
 

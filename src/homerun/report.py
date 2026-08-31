@@ -1,8 +1,7 @@
 """Step — HTML + PDF report generation.
 
-Writes one self-contained qc_report.html AND one qc_report.pdf per
-Species/Sample, both saved directly into that sample's own QC/ folder
-(Species/Sample/QC/) — same content, same section order, same image
+Writes one self-contained qc_report.html AND one qc_report.pdf per sample,
+both saved under Species/QC/<sample>/ — same content, section order, and image
 captions in both. The HTML embeds PNGs as base64; the PDF embeds them as
 native reportlab Image flowables built straight from the same PNG files
 and the same _IMG_ORDER*/_IMG_DESCRIPTIONS tables, so the two never drift

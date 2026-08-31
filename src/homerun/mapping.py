@@ -1,8 +1,8 @@
 """Step 2 — Mapping (alignment). STAR (default) or HISAT2, per R1 file.
 
 The aligner is chosen by cfg.aligner ("star" | "hisat2"). Both tools write a
-standard, UNCOMPRESSED SAM named "<prefix>.Aligned.out.sam" into each
-sample's own Aligned/ (next to its Trimmed/ and RawData/), so the tagdir
+standard, UNCOMPRESSED SAM named "<prefix>.Aligned.out.sam" into the
+species-level Aligned/ (next to Trimmed/ and RawData/), so the tagdir
 step and single-command re-runs work the same regardless of aligner.
 
 cfg.genome_index must be set explicitly (no genome is assumed):

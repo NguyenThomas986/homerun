@@ -1,7 +1,7 @@
 """Step — TSR characterization: stability + genomic location (needs total RNA).
 
 Runs per Species/Sample, reading that sample's own TSS/*.tss.txt and writing
-PNGs into that sample's own QC/. Requires total RNA: if a sample has no
+PNGs into Species/QC/<sample>/. Requires total RNA: if a sample has no
 totalRNA-combo TagDir, stability is skipped entirely for that sample (no
 partial/location-only plots either) — run 'tss' first to confirm.
 """
@@ -81,7 +81,10 @@ def _run_stability_one(cfg, species, sample) -> None:
         return
 
     tss_dir = cfg.sample_tss(species, sample)
-    tss_files = sorted(tss_dir.glob("*.tss.txt"))
+    tss_files = sorted(
+        path for path in tss_dir.glob("*.tss.txt")
+        if path.name.startswith(f"{sample}.")
+    )
     if not tss_files:
         return
 

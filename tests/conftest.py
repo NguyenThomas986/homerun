@@ -84,7 +84,7 @@ def make_fastq():
 @pytest.fixture
 def staged_sample(make_cfg, make_fastq):
     """A Config plus one already-staged csRNA replicate
-    (Species/Sample/RawData/<file>_R1.fastq.gz), for tests that need at
+    (Species/RawData/<file>_R1.fastq.gz), for tests that need at
     least one real, discoverable sample without exercising prepare.py's
     staging logic itself."""
     cfg = make_cfg()
