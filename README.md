@@ -145,7 +145,7 @@ path/to/homerun/submit_array.sh \
   --conda-env CONDA_ENV_NAME \
   --genome-index /path/to/STARIndex \
   --genome hg38 \
-  --copy-src /PATH/TO/*.FASTQ.GZ
+  --copy-src '/PATH/TO/*.FASTQ.GZ'
 ```
 
 ### Quick start (with RITRIE enabled)
@@ -164,7 +164,7 @@ The controller will:
 
 - parse and stage raw FASTQs into the compact `Species/RawData/` layout (e.g. `homo_sapiens_K562_csRNA-r1_DB422_S1_R1_001.fastq.gz` → `homo_sapiens/RawData/`)
 - write/refresh `config.txt` at the project root
-- submit a prepare job (which also validates `--gtf` up front, if given)
+- submit and wait for the prepare job (which stages all `--copy-src` files, validates `--gtf`, and finalizes array sizes)
 - submit a sample-array job for trim + align
 - submit a tagdir-array job (leaf TagDirs) and a tagdirs-combo-array job (combo TagDirs) in parallel
 - submit a tss-array job and a bedgraphs-array job, each depending on the combo TagDirs (bedgraphs also needs the leaf TagDirs)
@@ -189,8 +189,9 @@ Optional:
 | `--conda-module` | `anaconda3` | Cluster module that provides Conda |
 | `--aligner` | `star` | Aligner to use: `star` or `hisat2` |
 | `--throttle` | `16` | Max array tasks running at once |
+| `--tss-throttle` | `1` | Max concurrent TSS tasks; the safe default serializes writes to shared species-level `TSS/` directories |
 | `--email` | | Email address for SLURM notifications |
-| `--copy-src` | | Glob path to FASTQs to copy into the nested sample layout if none are present |
+| `--copy-src` | | Quoted glob path to FASTQs copied into `Species/RawData/` before array sizes are calculated |
 | `--starindex-url` | | URL to auto-download a STAR index tarball if none is found |
 | `--ntag-threshold` | `7` | Minimum tags to call a TSS cluster |
 | `--trim-min` | `20` | Discard reads shorter than this after trimming |

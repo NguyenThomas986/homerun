@@ -1,0 +1,30 @@
+#!/bin/bash
+#SBATCH --job-name=csrna_tagdir
+#SBATCH --time=4:00:00
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=5GB
+# Phase 2: one task per R1 file — build one sample-prefixed leaf TagDir.
+# Same indexing as align_array.sbatch (one R1 file = one leaf run), so task N
+# here builds the TagDir for the SAM file task N of align_array produced.
+set -euo pipefail
+
+# Args from submit_array.sh: <conda_module> <conda_env> <project> [python flags...]
+CONDA_MODULE="$1"; CONDA_ENV="$2"; PROJECT="$3"; PKG_DIR="$4"; shift 4
+
+# Make `python -m homerun` importable without pip install (repo dir on path)
+export PYTHONPATH="${PKG_DIR}/src:${PYTHONPATH:-}"
+
+module load "${CONDA_MODULE}"
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "${CONDA_ENV}"
+export PYTHONNOUSERSITE=1
+mkdir -p "${PROJECT}/logs_slurm"
+LOG="${PROJECT}/logs_slurm/tagdir_${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}.log"
+
+for t in makeTagDirectory python; do
+    command -v "$t" >/dev/null || { echo "MISSING ON PATH: $t"; exit 1; }
+done
+
+echo "[$(date)] tagdir task ${SLURM_ARRAY_TASK_ID} on $(hostname), ${SLURM_CPUS_PER_TASK:-?} threads"
+python -m homerun --sample-index "${SLURM_ARRAY_TASK_ID}" --steps tagdirs \
+       --skip-prepare --log-path "${LOG}" "$@"
+echo "[$(date)] tagdir task ${SLURM_ARRAY_TASK_ID} done"
