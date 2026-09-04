@@ -865,68 +865,167 @@ def _remove_qc_raw_log_copies(qc_dir) -> None:
 
 
 def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
-    """Create compact species-level A/C/G/T divergence heatmaps.
-
-    Rows are samples, columns are offsets in ``tagFreqUniq.txt``, and each
-    cell is the nucleotide frequency minus that nucleotide's global mean for
-    the species and assay. A fixed +/-0.1 scale keeps colors comparable.
     """
+    Create separate species-level A/C/G/T divergence heatmaps.
+
+    Rows are samples and columns are offsets in tagFreqUniq.txt.
+
+    For each nucleotide, the global mean frequency across all samples and
+    offsets is calculated. Each cell is then represented as:
+
+        nucleotide frequency - global nucleotide mean
+
+    A fixed +/-0.1 scale keeps heatmap colors comparable across samples.
+    """
+
     samples = list(samples if samples is not None else iter_samples(cfg))
     nucleotides = ("A", "C", "G", "T")
 
     for species in sorted({sp for sp, _sample in samples}):
-        species_samples = sorted(sample for sp, sample in samples if sp == species)
+        species_samples = sorted(
+            sample for sp, sample in samples if sp == species
+        )
+
         qc_root = cfg.species_qc(species)
 
         for assay in ("csRNA", "sRNA"):
-            matrices: dict[str, dict[str, pd.Series]] = {nt: {} for nt in nucleotides}
+
+            # Store nucleotide frequencies for each sample
+            matrices: dict[str, dict[str, pd.Series]] = {
+                nt: {} for nt in nucleotides
+            }
+
             for sample in species_samples:
                 tagdir = _combo(cfg, species, sample, assay)
-                freq_file = tagdir / "tagFreqUniq.txt" if tagdir else None
-                if freq_file is None or not freq_file.is_file():
+
+                if tagdir is None:
                     continue
+
+                freq_file = tagdir / "tagFreqUniq.txt"
+
+                if not freq_file.is_file():
+                    continue
+
                 try:
                     df = pd.read_csv(freq_file, sep="\t")
                 except Exception as exc:
-                    log.warning("QC nucleotide heatmap: could not read %s: %s", freq_file, exc)
+                    log.warning(
+                        "QC nucleotide heatmap: could not read %s: %s",
+                        freq_file,
+                        exc,
+                    )
                     continue
-                if "Offset" not in df.columns:
-                    log.warning("QC nucleotide heatmap: no Offset column in %s", freq_file)
-                    continue
-                df = df.set_index("Offset")
-                for nt in nucleotides:
-                    if nt in df.columns:
-                        matrices[nt][sample] = pd.to_numeric(df[nt], errors="coerce")
 
+                if "Offset" not in df.columns:
+                    log.warning(
+                        "QC nucleotide heatmap: no Offset column in %s",
+                        freq_file,
+                    )
+                    continue
+
+                df = df.set_index("Offset")
+
+                for nt in nucleotides:
+                    if nt not in df.columns:
+                        continue
+
+                    matrices[nt][sample] = pd.to_numeric(
+                        df[nt],
+                        errors="coerce",
+                    )
+
+            # Nothing found for this species/assay
             if not any(matrices.values()):
-                log.info("QC nucleotide heatmap: no %s tagFreqUniq.txt files for %s", assay, species)
+                log.info(
+                    "QC nucleotide heatmap: no %s tagFreqUniq.txt files for %s",
+                    assay,
+                    species,
+                )
                 continue
 
             qc_root.mkdir(parents=True, exist_ok=True)
-            fig, axes = plt.subplots(2, 2, figsize=(18, max(8, 0.45 * len(species_samples) + 7)))
-            for ax, nt in zip(axes.flat, nucleotides):
+
+            # ----------------------------------------------------------
+            # Create ONE heatmap per nucleotide
+            # ----------------------------------------------------------
+            for nt in nucleotides:
+
                 if not matrices[nt]:
-                    ax.axis("off")
-                    ax.set_title(f"{nt} — no data")
+                    log.info(
+                        "QC nucleotide heatmap: no %s data for %s %s",
+                        nt,
+                        species,
+                        assay,
+                    )
                     continue
 
+                # Samples become rows, offsets become columns
                 frame = pd.DataFrame(matrices[nt]).T
+
+                # Sort offsets numerically when possible
                 try:
-                    frame = frame.reindex(sorted(frame.columns, key=float), axis=1)
+                    frame = frame.reindex(
+                        sorted(frame.columns, key=float),
+                        axis=1,
+                    )
                 except (TypeError, ValueError):
-                    frame = frame.reindex(sorted(frame.columns, key=str), axis=1)
-                mean_frequency = float(np.nanmean(frame.to_numpy(dtype=float)))
+                    frame = frame.reindex(
+                        sorted(frame.columns, key=str),
+                        axis=1,
+                    )
+
+                # Calculate global nucleotide content
+                mean_frequency = float(
+                    np.nanmean(frame.to_numpy(dtype=float))
+                )
+
+                log.info(
+                    "QC nucleotide heatmap: %s %s %s global mean = %.4f",
+                    species,
+                    assay,
+                    nt,
+                    mean_frequency,
+                )
+
+                # Subtract global average
                 divergent = frame - mean_frequency
+
                 divergent.index.name = "Sample"
                 divergent.columns.name = "Offset"
+
+                # ------------------------------------------------------
+                # Save divergence data
+                # ------------------------------------------------------
+                data_path = (
+                    qc_root
+                    / f"{assay}_{nt}_nucleotide_divergence.tsv"
+                )
+
                 divergent.to_csv(
-                    qc_root / f"{assay}_{nt}_nucleotide_divergence.tsv",
+                    data_path,
                     sep="\t",
                 )
 
-                tick_every = max(1, len(divergent.columns) // 20)
+                # ------------------------------------------------------
+                # Make heatmap
+                # ------------------------------------------------------
+                fig_height = max(
+                    8,
+                    0.45 * len(divergent.index) + 4,
+                )
+
+                fig, ax = plt.subplots(
+                    figsize=(18, fig_height)
+                )
+
+                # Roughly 20 x-axis labels maximum
+                tick_every = max(
+                    1,
+                    len(divergent.columns) // 20,
+                )
+
                 sns.heatmap(
-                    divergent,
+                    data=divergent,
                     cmap="vlag",
                     center=0,
                     vmin=-0.1,
@@ -934,23 +1033,52 @@ def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
                     xticklabels=tick_every,
                     yticklabels=True,
                     ax=ax,
-                    cbar_kws={"label": "Frequency minus global mean"},
+                    cbar_kws={
+                        "label": (
+                            f"{nt} frequency minus global mean"
+                        )
+                    },
                 )
-                ax.set_title(f"{nt} (global mean {mean_frequency:.3f})")
+
+                # Similar naming/style to original G frequency plot
+                ax.set_title(
+                    f"{species} {assay} - "
+                    f"{nt} Frequency Relative to TSS\n"
+                    f"Global Mean {nt} Content: "
+                    f"{mean_frequency:.4f}"
+                )
+
                 ax.set_xlabel("Offset from 5′ tag start")
                 ax.set_ylabel("Sample")
 
-            fig.suptitle(
-                f"{species} {assay} nucleotide-frequency divergence",
-                fontsize=15,
-                y=1.01,
-            )
-            plt.tight_layout()
-            stem = qc_root / f"{assay}_nucleotide_divergence_heatmap"
-            fig.savefig(stem.with_suffix(".png"), dpi=150, bbox_inches="tight")
-            fig.savefig(stem.with_suffix(".svg"), bbox_inches="tight")
-            plt.close(fig)
-            log.info("QC: %s (%d sample(s))", stem.with_suffix(".png"), len(species_samples))
+                plt.tight_layout()
+
+                # ------------------------------------------------------
+                # Separate PNG/SVG for A, C, G, T
+                # ------------------------------------------------------
+                stem = (
+                    qc_root
+                    / f"{assay}_{nt}_nucleotide_divergence_heatmap"
+                )
+
+                fig.savefig(
+                    stem.with_suffix(".png"),
+                    dpi=150,
+                    bbox_inches="tight",
+                )
+
+                fig.savefig(
+                    stem.with_suffix(".svg"),
+                    bbox_inches="tight",
+                )
+
+                plt.close(fig)
+
+                log.info(
+                    "QC: %s (%d sample(s))",
+                    stem.with_suffix(".png"),
+                    len(divergent.index),
+                )
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
