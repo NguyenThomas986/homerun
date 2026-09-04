@@ -866,37 +866,54 @@ def _remove_qc_raw_log_copies(qc_dir) -> None:
 
 def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
     """
-    Create separate species-level A/C/G/T divergence heatmaps.
+    Create separate divergent A/C/G/T nucleotide-frequency heatmaps.
 
-    Rows are samples and columns are offsets in tagFreqUniq.txt.
+    For each species and assay:
+      - Read tagFreqUniq.txt for each sample.
+      - Use the Offset column exactly as provided by HOMER.
+      - Calculate the global mean frequency separately for A, C, G, and T.
+      - Subtract that nucleotide's global mean from every value.
+      - Create one red/blue divergent heatmap per nucleotide.
+      - Save PNG, SVG, and divergent data files.
 
-    For each nucleotide, the global mean frequency across all samples and
-    offsets is calculated. Each cell is then represented as:
-
-        nucleotide frequency - global nucleotide mean
-
-    A fixed +/-0.1 scale keeps heatmap colors comparable across samples.
+    The heatmap color scale is fixed at +/- 0.1.
     """
 
-    samples = list(samples if samples is not None else iter_samples(cfg))
+    samples = list(
+        samples if samples is not None else iter_samples(cfg)
+    )
+
     nucleotides = ("A", "C", "G", "T")
 
     for species in sorted({sp for sp, _sample in samples}):
+
         species_samples = sorted(
-            sample for sp, sample in samples if sp == species
+            sample
+            for sp, sample in samples
+            if sp == species
         )
 
         qc_root = cfg.species_qc(species)
 
+        # Loop once for csRNA and once for sRNA
         for assay in ("csRNA", "sRNA"):
 
-            # Store nucleotide frequencies for each sample
+            # Separate sample data for each nucleotide
             matrices: dict[str, dict[str, pd.Series]] = {
                 nt: {} for nt in nucleotides
             }
 
+            # ---------------------------------------------------------
+            # Read each sample's tagFreqUniq.txt
+            # ---------------------------------------------------------
             for sample in species_samples:
-                tagdir = _combo(cfg, species, sample, assay)
+
+                tagdir = _combo(
+                    cfg,
+                    species,
+                    sample,
+                    assay,
+                )
 
                 if tagdir is None:
                     continue
@@ -907,10 +924,15 @@ def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
                     continue
 
                 try:
-                    df = pd.read_csv(freq_file, sep="\t")
+                    df = pd.read_csv(
+                        freq_file,
+                        sep="\t",
+                    )
+
                 except Exception as exc:
                     log.warning(
-                        "QC nucleotide heatmap: could not read %s: %s",
+                        "QC nucleotide heatmap: "
+                        "could not read %s: %s",
                         freq_file,
                         exc,
                     )
@@ -918,14 +940,18 @@ def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
 
                 if "Offset" not in df.columns:
                     log.warning(
-                        "QC nucleotide heatmap: no Offset column in %s",
+                        "QC nucleotide heatmap: "
+                        "no Offset column in %s",
                         freq_file,
                     )
                     continue
 
+                # Same behavior as the original g_freq script:
+                # Offset becomes the dataframe index.
                 df = df.set_index("Offset")
 
                 for nt in nucleotides:
+
                     if nt not in df.columns:
                         continue
 
@@ -934,150 +960,151 @@ def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
                         errors="coerce",
                     )
 
-            # Nothing found for this species/assay
+            # ---------------------------------------------------------
+            # Skip assay if there was no data at all
+            # ---------------------------------------------------------
             if not any(matrices.values()):
+
                 log.info(
-                    "QC nucleotide heatmap: no %s tagFreqUniq.txt files for %s",
+                    "QC nucleotide heatmap: "
+                    "no %s tagFreqUniq.txt files for %s",
                     assay,
                     species,
                 )
+
                 continue
 
-            qc_root.mkdir(parents=True, exist_ok=True)
+            qc_root.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
 
-            # ----------------------------------------------------------
-            # Create ONE heatmap per nucleotide
-            # ----------------------------------------------------------
+            # ---------------------------------------------------------
+            # Create separate A, C, G, T plots
+            # ---------------------------------------------------------
             for nt in nucleotides:
 
                 if not matrices[nt]:
+
                     log.info(
-                        "QC nucleotide heatmap: no %s data for %s %s",
+                        "QC nucleotide heatmap: "
+                        "no %s data for %s %s",
                         nt,
                         species,
                         assay,
                     )
+
                     continue
 
-                # Samples become rows, offsets become columns
-                frame = pd.DataFrame(matrices[nt]).T
+                # -----------------------------------------------------
+                # Build dataframe
+                #
+                # Before transpose:
+                #
+                # Offset   Sample1  Sample2 ...
+                #
+                # After transpose:
+                #
+                #          -50 -49 -48 ... 198
+                # Sample1
+                # Sample2
+                #
+                # This is the same basic layout as the old g_freq code.
+                # -----------------------------------------------------
+                plot_frame_transposed = pd.DataFrame(
+                    matrices[nt]
+                ).T
 
-                # Sort offsets numerically when possible
-                try:
-                    frame = frame.reindex(
-                        sorted(frame.columns, key=float),
-                        axis=1,
-                    )
-                except (TypeError, ValueError):
-                    frame = frame.reindex(
-                        sorted(frame.columns, key=str),
-                        axis=1,
-                    )
-
-                # Calculate global nucleotide content
-                mean_frequency = float(
-                    np.nanmean(frame.to_numpy(dtype=float))
-                )
+                # -----------------------------------------------------
+                # Calculate global mean nucleotide content
+                # -----------------------------------------------------
+                avg_content = plot_frame_transposed.values.mean()
 
                 log.info(
-                    "QC nucleotide heatmap: %s %s %s global mean = %.4f",
+                    "Calculated Global Average '%s' Content "
+                    "for %s %s: %.4f",
+                    nt,
                     species,
                     assay,
-                    nt,
-                    mean_frequency,
+                    avg_content,
                 )
 
-                # Subtract global average
-                divergent = frame - mean_frequency
-
-                divergent.index.name = "Sample"
-                divergent.columns.name = "Offset"
-
-                # ------------------------------------------------------
-                # Save divergence data
-                # ------------------------------------------------------
-                data_path = (
-                    qc_root
-                    / f"{assay}_{nt}_nucleotide_divergence.tsv"
+                # -----------------------------------------------------
+                # Calculate divergence from global mean
+                # -----------------------------------------------------
+                plot_frame_divergent = (
+                    plot_frame_transposed - avg_content
                 )
 
-                divergent.to_csv(
-                    data_path,
-                    sep="\t",
+                # -----------------------------------------------------
+                # Plot using same settings as old g_freq script
+                # -----------------------------------------------------
+                sns.set(
+                    rc={
+                        "figure.figsize": (18, 12)
+                    },
+                    font_scale=1,
                 )
 
-                # ------------------------------------------------------
-                # Make heatmap
-                # ------------------------------------------------------
-                fig_height = max(
-                    8,
-                    0.45 * len(divergent.index) + 4,
-                )
+                plt.figure()
 
-                fig, ax = plt.subplots(
-                    figsize=(18, fig_height)
-                )
-
-                # Roughly 20 x-axis labels maximum
-                tick_every = max(
-                    1,
-                    len(divergent.columns) // 20,
-                )
-
-                sns.heatmap(
-                    data=divergent,
+                ax = sns.heatmap(
+                    data=plot_frame_divergent,
                     cmap="vlag",
                     center=0,
                     vmin=-0.1,
                     vmax=0.1,
-                    xticklabels=tick_every,
-                    yticklabels=True,
-                    ax=ax,
-                    cbar_kws={
-                        "label": (
-                            f"{nt} frequency minus global mean"
-                        )
-                    },
                 )
 
-                # Similar naming/style to original G frequency plot
-                ax.set_title(
-                    f"{species} {assay} - "
-                    f"{nt} Frequency Relative to TSS\n"
-                    f"Global Mean {nt} Content: "
-                    f"{mean_frequency:.4f}"
+                plt.title(
+                    f"{assay} - "
+                    f"{nt} Frequency Relative to TSS"
                 )
-
-                ax.set_xlabel("Offset from 5′ tag start")
-                ax.set_ylabel("Sample")
 
                 plt.tight_layout()
 
-                # ------------------------------------------------------
-                # Separate PNG/SVG for A, C, G, T
-                # ------------------------------------------------------
-                stem = (
+                # -----------------------------------------------------
+                # Save PNG and SVG
+                # -----------------------------------------------------
+                png_path = (
                     qc_root
-                    / f"{assay}_{nt}_nucleotide_divergence_heatmap"
+                    / f"{assay}_{nt}_DivergentPlot.png"
                 )
 
-                fig.savefig(
-                    stem.with_suffix(".png"),
-                    dpi=150,
+                svg_path = (
+                    qc_root
+                    / f"{assay}_{nt}_DivergentPlot.svg"
+                )
+
+                plt.savefig(
+                    png_path,
                     bbox_inches="tight",
                 )
 
-                fig.savefig(
-                    stem.with_suffix(".svg"),
+                plt.savefig(
+                    svg_path,
                     bbox_inches="tight",
                 )
 
-                plt.close(fig)
+                plt.close()
+
+                # -----------------------------------------------------
+                # Save divergent dataframe
+                # -----------------------------------------------------
+                data_path = (
+                    qc_root
+                    / f"{assay}_{nt}_Divergent_Data.tsv"
+                )
+
+                plot_frame_divergent.to_csv(
+                    data_path,
+                    sep="\t",
+                )
 
                 log.info(
                     "QC: %s (%d sample(s))",
-                    stem.with_suffix(".png"),
-                    len(divergent.index),
+                    png_path,
+                    len(plot_frame_divergent.index),
                 )
 
 
