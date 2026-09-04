@@ -3,7 +3,7 @@ site_url: https://thomasmnguyen.dev/homerun/
 
 theme:
   name: material
-  logo: assets/images/duttke-lab-logo.svg
+  logo: assets/images/duttke_lab_logo.svg
 
   palette:
     - scheme: slate
