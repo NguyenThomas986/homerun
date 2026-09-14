@@ -2,12 +2,14 @@
 #SBATCH --job-name=csrna_tss
 #SBATCH --time=4:00:00
 #SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=16G
-# Phase 5: one task per Species/Sample — call replicate TSRs into Species/TSS/.
+# Phase 5: one task per Species/Sample — call individual and combo TSRs into
+# Species/TSS/.
 # submit_array.sh defaults this array to one concurrent task so samples of
 # the same species cannot collide in tool-created temporary files.
 # Indexed by --group-index into
-# utils.list_samples(cfg). Each csRNA r-X is paired with the matching sRNA r-X
-# and, when available, the matching totalRNA r-X TagDir.
+# utils.list_samples(cfg). Each csRNA r-X is paired with the matching sRNA r-X;
+# each condition-preserving csRNA combo is paired with its corresponding combo.
+# Matching totalRNA TagDirs are included when available.
 set -euo pipefail
 
 # Args from submit_array.sh: <conda_module> <conda_env> <project> [python flags...]

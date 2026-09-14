@@ -143,11 +143,15 @@ class Config:
         which 'IMR90_csRNA_r1' vs. 'K562_csRNA_r1' isn't."""
         return self.species_dir(species) / "TagDirs" / f"{sample}_{leaf_name}"
 
-    def combo_tagdir(self, species: str, sample: str, assay: str) -> Path:
-        """Species/TagDirs/<sample>_<assay>-combo — merged-replicate
-        TagDir, e.g. 'IMR90_csRNA-combo'. Same self-identifying rationale as
-        leaf_tagdir above."""
-        return self.species_dir(species) / "TagDirs" / f"{sample}_{assay}-combo"
+    def combo_tagdir(self, species: str, sample: str, combo_leaf: str) -> Path:
+        """Species/TagDirs/<sample>_<full-prefix>-combo.
+
+        ``combo_leaf`` is the complete replicate identity with only its final
+        ``_rN`` marker removed.  Keeping the condition tokens prevents, for
+        example, D2/Post and D2/Pre libraries from being merged into an
+        assay-wide uber combo.
+        """
+        return self.species_dir(species) / "TagDirs" / f"{sample}_{combo_leaf}-combo"
 
     def leaf_bedgraph(self, species: str, sample: str, leaf_name: str) -> Path:
         """Species/bedGraphs/<sample>_<leaf_name> — one per individual

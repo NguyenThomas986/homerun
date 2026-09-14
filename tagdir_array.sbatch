@@ -3,9 +3,10 @@
 #SBATCH --time=4:00:00
 #SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=5GB
 # Phase 2: one task per R1 file. Files sharing the same parsed replicate
-# identity (for example multiple csRNA_r1 lanes) are merged into one TagDir.
-# Only the first sorted R1 task for that identity performs the build; duplicate
-# lane tasks exit successfully after logging a skip.
+# identity (for example multiple csRNA_r1 lanes) are merged into one individual
+# TagDir. Replicates differing only by their final _rN marker are additionally
+# merged into a condition-preserving <full-prefix>-combo TagDir. Canonical
+# sorted tasks perform each build so duplicate lane/replicate tasks do not race.
 set -euo pipefail
 
 # Args from submit_array.sh: <conda_module> <conda_env> <project> [python flags...]
