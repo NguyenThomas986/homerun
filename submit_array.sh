@@ -61,7 +61,7 @@ case "${TSS_THROTTLE}" in ''|*[!0-9]*) echo "ERROR: --tss-throttle must be a pos
 cd "${SCRIPT_DIR}"
 
 for job_file in prepare.sbatch align_array.sbatch tagdir_array.sbatch \
-                tagdirs_combo_array.sbatch tss_array.sbatch \
+                tss_array.sbatch \
                 bedgraphs_array.sbatch collect.sbatch; do
     [ -f "${job_file}" ] || { echo "ERROR: missing SLURM job file: ${SCRIPT_DIR}/${job_file}" >&2; exit 1; }
 done
@@ -120,19 +120,15 @@ ARRAY=$(sbatch --parsable "${SOPTS[@]}" \
         --output="${LOG_DIR}/align-%A_%a.out" --error="${LOG_DIR}/align-%A_%a.err" \
         --array=0-$((N-1))%"${THROTTLE}" \
         align_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-TAGDIR=$(sbatch --parsable "${SOPTS[@]}" --dependency=aftercorr:${ARRAY} \
+TAGDIR=$(sbatch --parsable "${SOPTS[@]}" --dependency=afterok:${ARRAY} \
         --output="${LOG_DIR}/tagdir-%A_%a.out" --error="${LOG_DIR}/tagdir-%A_%a.err" \
         --array=0-$((N-1))%"${THROTTLE}" \
         tagdir_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-TAGDIR_COMBO=$(sbatch --parsable "${SOPTS[@]}" --dependency=afterok:${ARRAY} \
-        --output="${LOG_DIR}/tagdircombo-%A_%a.out" --error="${LOG_DIR}/tagdircombo-%A_%a.err" \
-        --array=0-$((S-1))%"${THROTTLE}" \
-        tagdirs_combo_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-TSS=$(sbatch --parsable "${SOPTS[@]}" --dependency=afterok:${TAGDIR_COMBO} \
+TSS=$(sbatch --parsable "${SOPTS[@]}" --dependency=afterok:${TAGDIR} \
         --output="${LOG_DIR}/tss-%A_%a.out" --error="${LOG_DIR}/tss-%A_%a.err" \
         --array=0-$((S-1))%"${TSS_THROTTLE}" \
         tss_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-BEDGRAPH=$(sbatch --parsable "${SOPTS[@]}" --dependency=afterok:${TAGDIR}:${TAGDIR_COMBO} \
+BEDGRAPH=$(sbatch --parsable "${SOPTS[@]}" --dependency=afterok:${TAGDIR} \
         --output="${LOG_DIR}/bedgraphs-%A_%a.out" --error="${LOG_DIR}/bedgraphs-%A_%a.err" \
         --array=0-$((S-1))%"${THROTTLE}" \
         bedgraphs_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
@@ -144,7 +140,6 @@ echo "Submitted:"
 echo "  prepare             = ${PREP}"
 echo "  align_array         = ${ARRAY}         (tasks 0-$((N-1)), <= ${THROTTLE} concurrent)"
 echo "  tagdir_array        = ${TAGDIR}        (tasks 0-$((N-1)), <= ${THROTTLE} concurrent)"
-echo "  tagdirs_combo_array = ${TAGDIR_COMBO}  (tasks 0-$((S-1)), <= ${THROTTLE} concurrent)"
 echo "  tss_array           = ${TSS}           (tasks 0-$((S-1)), <= ${TSS_THROTTLE} concurrent)"
 echo "  bedgraphs_array     = ${BEDGRAPH}      (tasks 0-$((S-1)), <= ${THROTTLE} concurrent)"
 echo "  collect             = ${COLLECT} (runs after tss_array and bedgraphs_array succeed)"

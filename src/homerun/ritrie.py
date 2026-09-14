@@ -203,19 +203,21 @@ def _plot_ritrie(cfg, species, sample, df, qc_dir) -> None:
 
 
 def _run_ritrie_sample(cfg, species, sample, gtf_exons) -> None:
-    tsr_file = cfg.sample_tss(species, sample) / f"{sample}.tss.txt"
-    if not tsr_file.exists():
-        log.info("ritrie: no %s.tss.txt for %s/%s yet — run 'tss' first.", sample, species, sample)
-        return
-
-    leaf_names = [leaf_name for sp, sa, leaf_name, _r1 in iter_leaf_dirs(cfg)
-                  if sp == species and sa == sample and assay_of_leaf(leaf_name) == "csRNA"]
+    leaf_names = sorted(set(
+        leaf_name for sp, sa, leaf_name, _r1 in iter_leaf_dirs(cfg)
+        if sp == species and sa == sample and assay_of_leaf(leaf_name) == "csRNA"
+    ))
     if not leaf_names:
         log.info("ritrie: no csRNA leaf runs for %s/%s", species, sample)
         return
 
     rows = []
     for leaf_name in leaf_names:
+        tsr_file = cfg.sample_tss(species, sample) / f"{sample}_{leaf_name}.tss.txt"
+        if not tsr_file.exists():
+            log.info("ritrie: no replicate TSS file for %s/%s/%s — skipping.",
+                     species, sample, leaf_name)
+            continue
         row = _ritrie_for_leaf(cfg, species, sample, leaf_name, tsr_file, gtf_exons)
         if row is not None:
             rows.append(row)

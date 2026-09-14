@@ -15,6 +15,7 @@ import seaborn as sns                  # noqa: E402
 
 from .utils import log, iter_samples, iter_leaf_dirs, assay_of_leaf  # noqa: E402
 from .stability import _read_homer_tss, _location, DISTAL_C, PROX_C  # noqa: E402
+from .qc_excel import write_qc_workbook  # noqa: E402
 
 _ASSAYS = ("csRNA", "sRNA", "totalRNA")
 _ASSAY_COLORS = {"csRNA": "#2c7fb8", "sRNA": "#de7c00", "totalRNA": "#636363"}
@@ -52,7 +53,8 @@ def _sample_tss_files(cfg, species, sample, suffix):
     """Files in shared Species/TSS that belong to exactly one sample."""
     return sorted(
         path for path in cfg.sample_tss(species, sample).glob(f"*{suffix}")
-        if path.name.startswith(f"{sample}.")
+        if (path.name.startswith(f"{sample}.") or
+            path.name.startswith(f"{sample}_"))
     )
 
 
@@ -252,7 +254,11 @@ def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
     if not files:
         log.info("QC TSR summary: no *.stats.txt for %s/%s", species, sample); return
 
-    has_rna = cfg.combo_tagdir(species, sample, "totalRNA").is_dir()
+    has_rna = any(
+        sp == species and sa == sample and assay_of_leaf(leaf_name) == "totalRNA"
+        and cfg.leaf_tagdir(species, sample, leaf_name).is_dir()
+        for sp, sa, leaf_name, _r1 in iter_leaf_dirs(cfg)
+    )
 
     rows = []
     for f in files:
@@ -1156,3 +1162,4 @@ def run_qc(cfg) -> None:
         log.info("QC: %s/%s", species, sample)
         _run_qc_one(cfg, species, sample)
     qc_nucleotide_divergence_heatmaps(cfg, samples)
+    write_qc_workbook(cfg)

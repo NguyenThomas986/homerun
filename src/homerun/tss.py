@@ -1,56 +1,106 @@
-"""Step 5 — Find TSRs with findcsRNATSS.pl, per Species/Sample.
+"""Step 5 — call TSRs once per matched biological replicate.
 
-For each sample's csRNA-combo TagDir, uses the matching sRNA-combo as input
-control and, if present, the totalRNA-combo as the -rna reference. The -rna
-reference is optional: without total RNA the TSRs are still called, just
-without stable/unstable assignment. Output lands in the shared Species/TSS/,
-with sample-prefixed files (one TSS call per sample, not per assay).
+Each csRNA replicate uses the sRNA replicate with the same replicate marker
+and condition context. A matching totalRNA replicate is included when it
+exists. Outputs are written under Species/TSS/ with replicate-specific names,
+for example ``K562_csRNA_r1.tss.txt``.
 """
 from __future__ import annotations
 
-from .utils import run, log, done, iter_samples
+import re
+
+from .utils import assay_of_leaf, done, iter_leaf_dirs, iter_samples, log, replicate_of_leaf, run
+
+
+def _condition_key(leaf_name: str) -> tuple[str, ...]:
+    """Return non-assay, non-replicate tokens used to match controls."""
+    tokens = leaf_name.split("_")
+    kept = []
+    for token in tokens:
+        low = token.lower()
+        if re.fullmatch(r"r(ep)?\d+", token):
+            continue
+        if (low.startswith("csrna") or low.startswith("srna") or
+                low.startswith("totalrna") or low == "rna"):
+            continue
+        kept.append(token)
+    return tuple(kept)
+
+
+def _replicate_tagdirs(cfg, species, sample):
+    """Return one existing TagDir per distinct leaf identity."""
+    found = {}
+    for sp, sa, leaf_name, _r1 in iter_leaf_dirs(cfg):
+        if sp != species or sa != sample:
+            continue
+        tagdir = cfg.leaf_tagdir(species, sample, leaf_name)
+        if tagdir.is_dir():
+            found[leaf_name] = tagdir
+    return found
+
+
+def _matching_leaf(leaves, source_leaf, assay):
+    rep = replicate_of_leaf(source_leaf)
+    context = _condition_key(source_leaf)
+    matches = [
+        (leaf, path) for leaf, path in leaves.items()
+        if assay_of_leaf(leaf) == assay
+        and replicate_of_leaf(leaf) == rep
+        and _condition_key(leaf) == context
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    return None
 
 
 def run_tss(cfg, group=None) -> None:
-    """Array-capable via --group-index (group=(species, sample) restricts to
-    just that one Species/Sample), or runs for every Species/Sample at once
-    when group=None."""
-    found_any = False
+    """Call TSRs for each csRNA replicate with its matched sRNA control."""
+    found_csrna = False
 
     for species, sample in iter_samples(cfg):
         if group is not None and (species, sample) != group:
             continue
-        cs_dir = cfg.combo_tagdir(species, sample, "csRNA")
-        if not cs_dir.is_dir():
-            continue
-        found_any = True
 
-        sRNA_dir = cfg.combo_tagdir(species, sample, "sRNA")
-        if not sRNA_dir.is_dir():
-            log.warning("TSS: %s/%s has csRNA but no sRNA-combo — skipping (need an input control).",
-                        species, sample)
+        leaves = _replicate_tagdirs(cfg, species, sample)
+        cs_leaves = sorted(
+            (leaf, path) for leaf, path in leaves.items()
+            if assay_of_leaf(leaf) == "csRNA"
+        )
+        if not cs_leaves:
             continue
+        found_csrna = True
 
         tss_dir = cfg.sample_tss(species, sample)
         tss_dir.mkdir(parents=True, exist_ok=True)
-        out = tss_dir / sample
-        if done(f"{out}.tss.txt"):
-            log.info("  skip (done): %s/%s/TSS/%s.tss.txt", species, sample, sample)
-            continue
 
-        rna_dir = cfg.combo_tagdir(species, sample, "totalRNA")
-        if not rna_dir.is_dir():
-            rna_dir = None
+        for cs_leaf, cs_dir in cs_leaves:
+            srna_match = _matching_leaf(leaves, cs_leaf, "sRNA")
+            if srna_match is None:
+                log.warning(
+                    "TSS: %s/%s/%s has no unique matching sRNA replicate — skipping",
+                    species, sample, cs_leaf,
+                )
+                continue
+            srna_leaf, srna_dir = srna_match
 
-        cmd = (f"findcsRNATSS.pl {cs_dir} -o {out} -genome {cfg.genome} "
-               f"-ntagThreshold {cfg.ntag_threshold} -i {sRNA_dir}")
-        if rna_dir:
-            cmd += f" -rna {rna_dir}"
-            log.info("  using total-RNA reference: %s/%s/totalRNA-combo", species, sample)
-        else:
-            log.info("  no total-RNA reference for %s/%s (stability will be unavailable)",
-                     species, sample)
-        run(cmd, label=f"findcsRNATSS {species}/{sample}", cwd=tss_dir)
+            out = tss_dir / f"{sample}_{cs_leaf}"
+            if done(f"{out}.tss.txt"):
+                log.info("  skip (done): %s.tss.txt", out)
+                continue
 
-    if not found_any:
-        log.info("TSS: no csRNA-combo TagDirs under %s", cfg.project)
+            cmd = (f"findcsRNATSS.pl {cs_dir} -o {out} -genome {cfg.genome} "
+                   f"-ntagThreshold {cfg.ntag_threshold} -i {srna_dir}")
+
+            rna_match = _matching_leaf(leaves, cs_leaf, "totalRNA")
+            if rna_match is not None:
+                rna_leaf, rna_dir = rna_match
+                cmd += f" -rna {rna_dir}"
+                log.info("  %s uses controls %s and %s", cs_leaf, srna_leaf, rna_leaf)
+            else:
+                log.info("  %s uses control %s; no matching totalRNA replicate",
+                         cs_leaf, srna_leaf)
+
+            run(cmd, label=f"findcsRNATSS {species}/{sample}/{cs_leaf}", cwd=tss_dir)
+
+    if not found_csrna:
+        log.info("TSS: no replicate csRNA TagDirs under %s", cfg.project)

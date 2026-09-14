@@ -2,7 +2,7 @@
 
 Runs the csRNA-seq steps in strict dependency order:
 
-    trim → align → tagdirs → tagdirs-combo → bedgraphs → tss → ritrie → qc → stability → report
+    trim → align → tagdirs → bedgraphs → tss → ritrie → qc → stability → report
 
 Steps run sequentially and FAIL FAST: if any step raises, the pipeline stops
 immediately with a non-zero exit, so a downstream step never runs on missing
@@ -13,7 +13,7 @@ SLURM array support:
         Restricts trim/align/tagdirs to one leaf run (Nth R1 FASTQ).
 
     --group-index
-        Restricts tagdirs-combo/bedgraphs/tss to one Species/Sample group.
+        Restricts bedgraphs/tss to one Species/Sample group.
 
 QC/report steps remain project-level single jobs.
 """
@@ -60,7 +60,6 @@ STEP_ORDER = [
     "trim",
     "align",
     "tagdirs",
-    "tagdirs-combo",
     "bedgraphs",
     "tss",
     "ritrie",
@@ -80,7 +79,6 @@ PER_SAMPLE = {
 
 # SLURM array steps: one Species/Sample per task
 GROUP_STEPS = {
-    "tagdirs-combo",
     "bedgraphs",
     "tss",
 }
@@ -90,7 +88,6 @@ STEP_FUNCS = {
     "trim": trim.run_trim,
     "align": mapping.run_mapping,
     "tagdirs": tagdirs.run_leaf_tagdirs,
-    "tagdirs-combo": tagdirs.run_combo_tagdirs,
     "bedgraphs": bedgraphs.run_bedgraphs,
     "tss": tss.run_tss,
     "ritrie": ritrie.run_ritrie,
