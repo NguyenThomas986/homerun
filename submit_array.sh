@@ -120,7 +120,7 @@ ARRAY=$(sbatch --parsable "${SOPTS[@]}" \
         --output="${LOG_DIR}/align-%A_%a.out" --error="${LOG_DIR}/align-%A_%a.err" \
         --array=0-$((N-1))%"${THROTTLE}" \
         align_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
-TAGDIR=$(sbatch --parsable "${SOPTS[@]}" --dependency=afterok:${ARRAY} \
+TAGDIR=$(sbatch --parsable "${SOPTS[@]}" --dependency=afterany:${ARRAY} \
         --output="${LOG_DIR}/tagdir-%A_%a.out" --error="${LOG_DIR}/tagdir-%A_%a.err" \
         --array=0-$((N-1))%"${THROTTLE}" \
         tagdir_array.sbatch "${PLUMBING[@]}" "${PY_ARGS[@]}")
