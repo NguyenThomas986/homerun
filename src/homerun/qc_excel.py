@@ -11,7 +11,6 @@ import re
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from .utils import assay_of_leaf, iter_leaf_dirs, log, replicate_of_leaf
 
@@ -66,39 +65,35 @@ def _tagdir_rows(cfg):
 
         if info.exists():
             lines = info.read_text(errors="replace").splitlines()
+
             genome_line = next(
                 (line for line in lines if line.startswith("genome=")),
                 "",
             )
+
             parts = genome_line.split("\t")
 
-            row.update(
-                {
-                    "Total Tags": (
-                        parts[2].strip() if len(parts) > 2 else "NA"
-                    ),
-                    "Unique Positions": (
-                        parts[1].strip() if len(parts) > 1 else "NA"
-                    ),
-                    "Tags per BP": _taginfo_value(lines, "tagsPerBP"),
-                    "Average Tags/Position": _taginfo_value(
-                        lines,
-                        "averageTagsPerPosition",
-                    ),
-                    "Median Tags/Position": _taginfo_value(
-                        lines,
-                        "medianTagsPerPosition",
-                    ),
-                    "Average Read Length": _taginfo_value(
-                        lines,
-                        "averageTagLength",
-                    ),
-                    "Average Fragment GC": _taginfo_value(
-                        lines,
-                        "averageFragmentGCcontent",
-                    ),
-                }
-            )
+            row.update({
+                "Total Tags": parts[2].strip() if len(parts) > 2 else "NA",
+                "Unique Positions": parts[1].strip() if len(parts) > 1 else "NA",
+                "Tags per BP": _taginfo_value(lines, "tagsPerBP"),
+                "Average Tags/Position": _taginfo_value(
+                    lines,
+                    "averageTagsPerPosition",
+                ),
+                "Median Tags/Position": _taginfo_value(
+                    lines,
+                    "medianTagsPerPosition",
+                ),
+                "Average Read Length": _taginfo_value(
+                    lines,
+                    "averageTagLength",
+                ),
+                "Average Fragment GC": _taginfo_value(
+                    lines,
+                    "averageFragmentGCcontent",
+                ),
+            })
 
         rows.append(row)
 
@@ -106,7 +101,7 @@ def _tagdir_rows(cfg):
 
 
 def _grab(text, pattern, cast=str, default="NA"):
-    match = re.search(pattern, text, flags=re.MULTILINE)
+    match = re.search(pattern, text)
 
     if not match:
         return default
@@ -119,82 +114,8 @@ def _grab(text, pattern, cast=str, default="NA"):
         return default
 
 
-def _grab_any(text, patterns, cast=str, default="NA"):
-    """Try multiple possible HOMER labels for the same statistic."""
-    for pattern in patterns:
-        value = _grab(
-            text,
-            pattern,
-            cast=cast,
-            default=None,
-        )
-
-        if value is not None:
-            return value
-
-    return default
-
-
-def _tss_annotation_counts(tss_file):
-    """Count TSR annotation categories from a matching HOMER *.tss.txt file."""
-    result = {
-        "TSRs w. annotation": "NA",
-        "tss": "NA",
-        "first Exon": "NA",
-        "single Exon": "NA",
-        "tssAntisense": "NA",
-        "exon": "NA",
-        "other": "NA",
-    }
-
-    if not tss_file.exists():
-        return result
-
-    try:
-        with tss_file.open(newline="", errors="replace") as handle:
-            reader = csv.DictReader(handle, delimiter="\t")
-            rows = list(reader)
-    except (OSError, csv.Error):
-        return result
-
-    if not rows:
-        return result
-
-    annotation_counts = Counter()
-
-    for row in rows:
-        # HOMER TSS files can include non-data/header-like rows. Match qc.py's
-        # behavior by only keeping chromosome rows when a chr field exists.
-        chrom = row.get("chr")
-        if chrom is not None and not chrom.startswith("chr"):
-            continue
-
-        annotation = (row.get("annotation") or "").strip()
-
-        if annotation:
-            annotation_counts[annotation] += 1
-
-    valid_total = sum(annotation_counts.values())
-
-    result["TSRs w. annotation"] = valid_total
-    result["tss"] = annotation_counts.get("tss", 0)
-    result["first Exon"] = annotation_counts.get("firstExon", 0)
-    result["single Exon"] = annotation_counts.get("singleExon", 0)
-    result["tssAntisense"] = annotation_counts.get("tssAntisense", 0)
-
-    # Combine exon-style categories into the single requested "exon" column.
-    result["exon"] = (
-        annotation_counts.get("otherExon", 0)
-        + annotation_counts.get("otherExonBidirectional", 0)
-    )
-
-    result["other"] = annotation_counts.get("other", 0)
-
-    return result
-
-
 def _peak_rows(cfg):
-    """Return one QC row per findcsRNATSS peak call."""
+    """Collect TSR / findcsRNATSS statistics from Species/TSS/*.stats.txt."""
     rows = []
 
     for species_dir in sorted(
@@ -208,86 +129,14 @@ def _peak_rows(cfg):
 
         for stats in sorted(tss_dir.glob("*.stats.txt")):
             text = stats.read_text(errors="replace")
+
             library = stats.name.removesuffix(".stats.txt")
             sample = library.split("_", 1)[0]
-            tss_file = tss_dir / f"{library}.tss.txt"
 
-            annotations = _tss_annotation_counts(tss_file)
-
-            stable_tss = _grab_any(
-                text,
-                [
-                    r"Stable TSSs?:\s+(\d+)",
-                    r"stableTSSs\s*[:=]\s*(\d+)",
-                    r"Stable TSS count:\s+(\d+)",
-                ],
-                int,
-            )
-
-            unstable_tss = _grab_any(
-                text,
-                [
-                    r"Unstable TSSs?:\s+(\d+)",
-                    r"unstableTSSs\s*[:=]\s*(\d+)",
-                    r"Unstable TSS count:\s+(\d+)",
-                ],
-                int,
-            )
-
-            total_tss = "NA"
-            pct_stable = "NA"
-            pct_unstable = "NA"
-
-            if isinstance(stable_tss, int) and isinstance(unstable_tss, int):
-                total_tss = stable_tss + unstable_tss
-
-                if total_tss > 0:
-                    pct_stable = round(
-                        100.0 * stable_tss / total_tss,
-                        2,
-                    )
-                    pct_unstable = round(
-                        100.0 * unstable_tss / total_tss,
-                        2,
-                    )
-
-            putative_tsrs = _grab(
-                text,
-                r"total putative TSS clusters\s+(\d+)",
-                int,
-            )
-
-            valid_tsrs = _grab(
-                text,
-                r"Valid TSS clusters\s+(\d+)",
-                int,
-            )
-
-            stable_tsrs = _grab_any(
-                text,
-                [
-                    r"Stable TSRs?:\s+(\d+)",
-                    r"stable TSRs?:\s+(\d+)",
-                    r"stable TSS clusters\s+(\d+)",
-                ],
-                int,
-            )
-
-            unstable_tsrs = _grab_any(
-                text,
-                [
-                    r"Unstable TSRs?:\s+(\d+)",
-                    r"unstable TSRs?:\s+(\d+)",
-                    r"unstable TSS clusters\s+(\d+)",
-                ],
-                int,
-            )
-
-            row = {
+            rows.append({
                 "Species": species_dir.name,
                 "Sample": sample,
                 "Peak call": library,
-
                 "Total csRNA reads": _grab(
                     text,
                     r"Total csRNA reads:\s+([\d.]+)",
@@ -298,75 +147,29 @@ def _peak_rows(cfg):
                     r"Total input reads:\s+([\d.]+)",
                     float,
                 ),
-
-                # TSS stability counts
-                "stableTSSs": stable_tss,
-                "unstableTSSs": unstable_tss,
-                "TSS": total_tss,
-                "% unstable": pct_unstable,
-                "% stable": pct_stable,
-
-                # TSR counts
-                "putative TSRs": putative_tsrs,
-                "valid TSRs": valid_tsrs,
-                "stableTSRs": stable_tsrs,
-                "unstableTSRs": unstable_tsrs,
-
-                # TSR percentages
-                "Bidirectional TSRs [%]": _grab(
+                "Putative TSS": _grab(
+                    text,
+                    r"total putative TSS clusters\s+(\d+)",
+                    int,
+                ),
+                "Valid TSS": _grab(
+                    text,
+                    r"Valid TSS clusters\s+(\d+)",
+                    int,
+                ),
+                "Distal %": _grab(
+                    text,
+                    r"Fraction Promoter-Distal.*?:\s+([\d.]+%)",
+                    float,
+                ),
+                "Bidirectional %": _grab(
                     text,
                     r"Fraction of bidirectional.*?:\s+([\d.]+%)",
                     float,
                 ),
-                "Stable TSRs [%]": _grab(
+                "Stable %": _grab(
                     text,
                     r"Fraction of stable.*?:\s+([\d.]+%)",
-                    float,
-                ),
-
-                # Stability classes
-                "S": _grab_any(
-                    text,
-                    [
-                        r"^\s*S:\s+\d+\s+\(([\d.]+%)",
-                    ],
-                    float,
-                ),
-                "SS": _grab(
-                    text,
-                    r"^\s*SS:\s+\d+\s+\(([\d.]+%)",
-                    float,
-                ),
-                "SU": _grab(
-                    text,
-                    r"^\s*SU:\s+\d+\s+\(([\d.]+%)",
-                    float,
-                ),
-                "U": _grab_any(
-                    text,
-                    [
-                        r"^\s*U:\s+\d+\s+\(([\d.]+%)",
-                    ],
-                    float,
-                ),
-                "US": _grab(
-                    text,
-                    r"^\s*US:\s+\d+\s+\(([\d.]+%)",
-                    float,
-                ),
-                "UU": _grab(
-                    text,
-                    r"^\s*UU:\s+\d+\s+\(([\d.]+%)",
-                    float,
-                ),
-
-                # Annotation counts from *.tss.txt
-                **annotations,
-
-                # Existing useful stats
-                "Distal %": _grab(
-                    text,
-                    r"Fraction Promoter-Distal.*?:\s+([\d.]+%)",
                     float,
                 ),
                 "Log2 vs Input": _grab(
@@ -379,12 +182,8 @@ def _peak_rows(cfg):
                     r"log2 fold vs\. rna:\s+([\d.\-]+)",
                     float,
                 ),
-
                 "Stats file": str(stats),
-                "TSS file": str(tss_file),
-            }
-
-            rows.append(row)
+            })
 
     return rows
 
@@ -404,10 +203,7 @@ def _parse_lengths(path):
 
                 try:
                     values.append(
-                        (
-                            float(row[0]),
-                            float(row[1]),
-                        )
+                        (float(row[0]), float(row[1]))
                     )
                 except ValueError:
                     continue
@@ -418,7 +214,10 @@ def _parse_lengths(path):
     if not values:
         return None
 
-    total = sum(count for _length, count in values)
+    total = sum(
+        count
+        for _length, count in values
+    )
 
     if total <= 0:
         return None
@@ -436,8 +235,7 @@ def _parse_lengths(path):
             length * count
             for length, count in values
             if length != 0
-        )
-        / retained
+        ) / retained
         if retained > 0
         else "NA"
     )
@@ -445,9 +243,15 @@ def _parse_lengths(path):
     return {
         "Input Reads": int(total),
         "Retained Reads": int(retained),
-        "Retained %": round(100 * retained / total, 2),
+        "Retained %": round(
+            100 * retained / total,
+            2,
+        ),
         "Adapter/Dimer Reads": int(adapters),
-        "Adapter/Dimer %": round(100 * adapters / total, 2),
+        "Adapter/Dimer %": round(
+            100 * adapters / total,
+            2,
+        ),
         "Average Retained Length": (
             round(average, 2)
             if average != "NA"
@@ -505,7 +309,10 @@ def _parse_star(path):
     ]
 
     if unmapped:
-        result["Unmapped %"] = round(sum(unmapped), 2)
+        result["Unmapped %"] = round(
+            sum(unmapped),
+            2,
+        )
 
     uniquely = result.get("Uniquely Mapped %")
     multi = result.get("Multi-Mapped %")
@@ -513,11 +320,7 @@ def _parse_star(path):
 
     if all(
         value is not None
-        for value in (
-            uniquely,
-            multi,
-            too_many,
-        )
+        for value in (uniquely, multi, too_many)
     ):
         result["Overall Aligned %"] = round(
             uniquely + multi + too_many,
@@ -529,6 +332,7 @@ def _parse_star(path):
 
 def _parse_hisat2(path):
     text = path.read_text(errors="replace")
+
     result = {}
 
     patterns = {
@@ -580,6 +384,7 @@ def _trim_alignment_rows(cfg):
             "FASTQ": r1.name,
         }
 
+        # Trimming statistics
         lengths = (
             cfg.trimmed_dir(species, sample)
             / f"{r1.name}.lengths"
@@ -589,20 +394,30 @@ def _trim_alignment_rows(cfg):
             parsed = _parse_lengths(lengths)
 
             if parsed:
-                trim_rows.append(
-                    {
-                        **common,
-                        "Tool": "homerTools",
-                        **parsed,
-                        "Source log": str(lengths),
-                    }
-                )
+                trim_rows.append({
+                    **common,
+                    "Tool": "homerTools",
+                    **parsed,
+                    "Source log": str(lengths),
+                })
 
+        # Alignment statistics
         prefix = r1.name.split("_R1")[0]
-        aligned_dir = cfg.aligned_dir(species, sample)
 
-        star_log = aligned_dir / f"{prefix}.Log.final.out"
-        hisat2_log = aligned_dir / f"{prefix}_mappingstats.txt"
+        aligned_dir = cfg.aligned_dir(
+            species,
+            sample,
+        )
+
+        star_log = (
+            aligned_dir
+            / f"{prefix}.Log.final.out"
+        )
+
+        hisat2_log = (
+            aligned_dir
+            / f"{prefix}_mappingstats.txt"
+        )
 
         if star_log.exists():
             parsed = _parse_star(star_log)
@@ -618,77 +433,64 @@ def _trim_alignment_rows(cfg):
             parsed = None
 
         if parsed:
-            alignment_rows.append(
-                {
-                    **common,
-                    "Aligner": tool,
-                    "Input Reads": parsed.get(
-                        "Input Reads",
-                        "NA",
-                    ),
-                    "Uniquely Mapped %": parsed.get(
-                        "Uniquely Mapped %",
-                        "NA",
-                    ),
-                    "Multi-Mapped %": parsed.get(
-                        "Multi-Mapped %",
-                        "NA",
-                    ),
-                    "Unmapped %": parsed.get(
-                        "Unmapped %",
-                        "NA",
-                    ),
-                    "Overall Aligned %": parsed.get(
-                        "Overall Aligned %",
-                        "NA",
-                    ),
-                    "Source log": str(source),
-                }
-            )
+            alignment_rows.append({
+                **common,
+                "Aligner": tool,
+                "Input Reads": parsed.get(
+                    "Input Reads",
+                    "NA",
+                ),
+                "Uniquely Mapped %": parsed.get(
+                    "Uniquely Mapped %",
+                    "NA",
+                ),
+                "Multi-Mapped %": parsed.get(
+                    "Multi-Mapped %",
+                    "NA",
+                ),
+                "Unmapped %": parsed.get(
+                    "Unmapped %",
+                    "NA",
+                ),
+                "Overall Aligned %": parsed.get(
+                    "Overall Aligned %",
+                    "NA",
+                ),
+                "Source log": str(source),
+            })
 
     return trim_rows, alignment_rows
 
 
-def _write_table_sheet(
-    workbook,
-    name,
-    rows,
-    table_name,
-):
+def _write_table_sheet(workbook, name, rows):
+    """Write a normal worksheet with headers and AutoFilter.
+
+    This intentionally does not create an openpyxl Table object. Excel was
+    repairing/removing those table definitions on open, so regular worksheet
+    filters are used instead.
+    """
     ws = workbook.create_sheet(name)
 
     if not rows:
-        ws.append(
-            [
-                f"No {name.lower()} data were found."
-            ]
-        )
+        ws.append([
+            f"No {name.lower()} data were found."
+        ])
 
         ws["A1"].fill = TITLE_FILL
         ws["A1"].font = Font(bold=True)
 
         return ws
 
-    # Use every key present anywhere in the rows while preserving first-seen
-    # column order. This keeps optional TSR fields from disappearing if the
-    # first row happens to contain fewer values.
-    headers = []
-
-    for row in rows:
-        for key in row:
-            if key not in headers:
-                headers.append(key)
-
+    headers = list(rows[0])
     ws.append(headers)
 
     for row in rows:
-        ws.append(
-            [
-                row.get(header, "NA")
-                for header in headers
-            ]
-        )
+        ws.append([
+            row.get(header, "NA")
+            for header in headers
+        ])
 
+    # Header formatting
     for cell in ws[1]:
         cell.fill = HEADER_FILL
         cell.font = HEADER_FONT
@@ -698,24 +500,13 @@ def _write_table_sheet(
             wrap_text=True,
         )
 
+    # Freeze the header row
     ws.freeze_panes = "A2"
+
+    # Native worksheet filter without an Excel Table object
     ws.auto_filter.ref = ws.dimensions
 
-    table = Table(
-        displayName=table_name,
-        ref=ws.dimensions,
-    )
-
-    table.tableStyleInfo = TableStyleInfo(
-        name="TableStyleMedium2",
-        showFirstColumn=False,
-        showLastColumn=False,
-        showRowStripes=True,
-        showColumnStripes=False,
-    )
-
-    ws.add_table(table)
-
+    # Make columns readable without letting paths create huge widths
     for column_cells in ws.columns:
         values = [
             str(cell.value or "")
@@ -734,15 +525,10 @@ def _write_table_sheet(
             column_cells[0].column_letter
         ].width = width
 
-    # Format all percentage-style columns numerically.
+    # Numeric percentage columns are already stored as values like 97.2,
+    # so display them as ordinary numbers rather than Excel's 0.972 format.
     for cell in ws[1]:
-        header = str(cell.value or "")
-
-        if (
-            "%" in header
-            or header.startswith("%")
-            or header.endswith("[%]")
-        ):
+        if str(cell.value).endswith("%"):
             for data_cell in ws.iter_cols(
                 min_col=cell.column,
                 max_col=cell.column,
@@ -763,7 +549,9 @@ def _write_overview(
 ):
     ws = workbook.create_sheet("Overview")
 
-    ws.append(["HOMERun QC Summary"])
+    ws.append([
+        "HOMERun QC Summary"
+    ])
 
     ws["A1"].fill = HEADER_FILL
     ws["A1"].font = Font(
@@ -774,61 +562,49 @@ def _write_overview(
 
     ws.merge_cells("A1:B1")
 
-    ws.append(
-        [
-            "Project",
-            str(cfg.project),
-        ]
-    )
-    ws.append(
-        [
-            "Replicate TagDirs",
-            len(tag_rows),
-        ]
-    )
-    ws.append(
-        [
-            "Peak calls",
-            len(peak_rows),
-        ]
-    )
-    ws.append(
-        [
-            "Trimming records",
-            len(trim_rows),
-        ]
-    )
-    ws.append(
-        [
-            "Alignment records",
-            len(alignment_rows),
-        ]
-    )
-    ws.append(
-        [
-            "Species",
-            len(
-                {
-                    row["Species"]
-                    for row in tag_rows
-                }
-            ),
-        ]
-    )
-    ws.append(
-        [
-            "Samples",
-            len(
-                {
-                    (
-                        row["Species"],
-                        row["Sample"],
-                    )
-                    for row in tag_rows
-                }
-            ),
-        ]
-    )
+    ws.append([
+        "Project",
+        str(cfg.project),
+    ])
+
+    ws.append([
+        "Replicate TagDirs",
+        len(tag_rows),
+    ])
+
+    ws.append([
+        "TSR / Peak calls",
+        len(peak_rows),
+    ])
+
+    ws.append([
+        "Trimming records",
+        len(trim_rows),
+    ])
+
+    ws.append([
+        "Alignment records",
+        len(alignment_rows),
+    ])
+
+    ws.append([
+        "Species",
+        len({
+            row["Species"]
+            for row in tag_rows
+        }),
+    ])
+
+    ws.append([
+        "Samples",
+        len({
+            (
+                row["Species"],
+                row["Sample"],
+            )
+            for row in tag_rows
+        }),
+    ])
 
     ws.column_dimensions["A"].width = 24
     ws.column_dimensions["B"].width = 70
@@ -840,17 +616,34 @@ def _write_overview(
         ws.cell(
             row,
             1,
-        ).font = Font(bold=True)
+        ).font = Font(
+            bold=True
+        )
 
 
 def write_qc_workbook(cfg):
     """Write ``QC_summary.xlsx`` at the project root and return its path."""
     tag_rows = _tagdir_rows(cfg)
     peak_rows = _peak_rows(cfg)
-    trim_rows, alignment_rows = _trim_alignment_rows(cfg)
+
+    trim_rows, alignment_rows = (
+        _trim_alignment_rows(cfg)
+    )
+
+    log.info(
+        "QC Excel: %d trimming, %d alignment, %d TagDir, %d TSR stat row(s)",
+        len(trim_rows),
+        len(alignment_rows),
+        len(tag_rows),
+        len(peak_rows),
+    )
 
     workbook = Workbook()
-    workbook.remove(workbook.active)
+
+    # Remove the blank default sheet.
+    workbook.remove(
+        workbook.active
+    )
 
     _write_overview(
         workbook,
@@ -865,31 +658,30 @@ def write_qc_workbook(cfg):
         workbook,
         "Trimming",
         trim_rows,
-        "TrimmingQC",
     )
 
     _write_table_sheet(
         workbook,
         "Alignment",
         alignment_rows,
-        "AlignmentQC",
     )
 
     _write_table_sheet(
         workbook,
         "Tag Directories",
         tag_rows,
-        "TagDirectoryQC",
     )
 
     _write_table_sheet(
         workbook,
-        "Peak Calling",
+        "TSR Stats",
         peak_rows,
-        "PeakCallingQC",
     )
 
-    output = cfg.project / "QC_summary.xlsx"
+    output = (
+        cfg.project
+        / "QC_summary.xlsx"
+    )
 
     workbook.save(output)
 
