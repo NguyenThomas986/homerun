@@ -179,52 +179,70 @@ def _median_tags_bar_merged(cfg, species, sample, qc_dir) -> None:
 
 
 def qc_threshold_optimization(cfg, species, sample, qc_dir) -> None:
-    """Threshold optimization plot from prefix.inputDistribution.txt files."""
+    """Threshold optimization plots in a bounded grid.
+
+    The old implementation stacked one 5-inch-tall subplot per TSS file, which
+    could create figures hundreds of inches tall for large experiments and
+    trigger FreeType/Matplotlib ``raster overflow`` errors.
+    """
     files = _sample_tss_files(cfg, species, sample, ".inputDistribution.txt")
     if not files:
-        log.info("QC threshold: no *.inputDistribution.txt for %s/%s", species, sample); return
+        log.info("QC threshold: no *.inputDistribution.txt for %s/%s", species, sample)
+        return
 
     n = len(files)
-    fig, axes = plt.subplots(n, 1, figsize=(8, 5 * n), squeeze=False)
+    log.info("QC threshold: rendering %d TSS file(s)", n)
+    fig, axes = _replicate_grid(n)
 
-    for ax, f in zip(axes[:, 0], files):
+    for i, (ax, f) in enumerate(zip(axes.flat, files)):
         df = pd.read_csv(f, sep="\t", header=0)
         df.columns = [c.strip() for c in df.columns]
 
         x_col, tss_col, exon_col, diff_col = (
             "csRNA/input log2 ratio", "TSS CDF", "Exon CDF", "Difference")
 
-        ax.plot(df[x_col], df[tss_col],  color="steelblue",  lw=2, label="TSS CDF")
-        ax.plot(df[x_col], df[exon_col], color="darkorange", lw=2, label="Exon CDF")
-        ax.plot(df[x_col], df[diff_col], color="gray", lw=1.5, ls="--", label="Difference")
+        ax.plot(df[x_col], df[tss_col], color="steelblue", lw=1.4, label="TSS CDF")
+        ax.plot(df[x_col], df[exon_col], color="darkorange", lw=1.4, label="Exon CDF")
+        ax.plot(df[x_col], df[diff_col], color="gray", lw=1.0, ls="--", label="Difference")
 
         idx = df[diff_col].idxmax()
         thresh = df.loc[idx, x_col]
-        ax.axvline(thresh, color="black", ls=":", lw=1)
-        ax.text(thresh + 0.1, 0.05, f"threshold = {thresh:.2f}", fontsize=8)
+        ax.axvline(thresh, color="black", ls=":", lw=0.9)
+        ax.text(0.98, 0.05, f"thr={thresh:.2f}", transform=ax.transAxes,
+                ha="right", va="bottom", fontsize=6)
 
         s = f.name.replace(".inputDistribution.txt", "")
-        ax.set_title(f"Threshold Optimization — {s}")
-        ax.set_xlabel("Log2 Ratio of csRNAseq/control")
-        ax.set_ylabel("Cumulative Distribution")
+        ax.set_title(s, fontsize=8)
         ax.set_ylim(0, 1.05)
-        ax.legend(fontsize=9)
+        ax.tick_params(labelsize=7)
+        if i == 0:
+            ax.legend(fontsize=6, loc="best")
 
+    fig.supxlabel("Log2 Ratio of csRNAseq/control")
+    fig.supylabel("Cumulative Distribution")
+    fig.suptitle(f"Threshold Optimization — {n} TSS output(s)")
     plt.tight_layout()
-    plt.savefig(qc_dir / "threshold_optimization.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: threshold_optimization.png")
+    plt.savefig(qc_dir / "threshold_optimization.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("QC: threshold_optimization.png (%d TSS output(s), grid)", n)
 
 
 def qc_tss_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
-    """Nucleotide frequency at primary TSS from *.freq.tsv files."""
+    """Nucleotide frequency at primary TSS from *.freq.tsv files.
+
+    Uses the same bounded grid as the per-replicate plots so large experiments
+    do not create a single ultra-wide image.
+    """
     files = _sample_tss_files(cfg, species, sample, ".freq.tsv")
     if not files:
-        log.info("QC TSS nt-freq: no *.freq.tsv for %s/%s", species, sample); return
+        log.info("QC TSS nt-freq: no *.freq.tsv for %s/%s", species, sample)
+        return
 
     n = len(files)
-    fig, axes = plt.subplots(1, n, figsize=(7 * n, 5), squeeze=False)
+    log.info("QC TSS nt-freq: rendering %d file(s)", n)
+    fig, axes = _replicate_grid(n)
 
-    for ax, f in zip(axes[0], files):
+    for i, (ax, f) in enumerate(zip(axes.flat, files)):
         df = pd.read_csv(f, sep="\t", index_col=0)
         nt_cols = {"A frequency": ("A", "steelblue"),
                    "C frequency": ("C", "darkorange"),
@@ -232,20 +250,22 @@ def qc_tss_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
                    "T frequency": ("T", "gold")}
         for col, (label, color) in nt_cols.items():
             if col in df.columns:
-                ax.plot(df.index, df[col], label=label, color=color, lw=1.5)
+                ax.plot(df.index, df[col], label=label, color=color, lw=1.0)
 
-        s = f.name.split(".tss.txt")[0]
-        ax.set_title(s)
-        ax.set_xlabel("Distance from TSS")
-        ax.set_ylabel("Nucleotide Frequency")
+        s = f.name.replace(".freq.tsv", "")
+        ax.set_title(s, fontsize=8)
         ax.set_xlim(-100, 100)
-        ax.legend(fontsize=9)
+        ax.tick_params(labelsize=7)
+        if i == 0:
+            ax.legend(fontsize=6, ncol=4, loc="best")
 
-    plt.suptitle("Nucleotide Frequencies at Primary TSS", y=1.0, fontsize=12)
+    fig.supxlabel("Distance from TSS")
+    fig.supylabel("Nucleotide Frequency")
+    fig.suptitle(f"Nucleotide Frequencies at Primary TSS — {n} output(s)")
     plt.tight_layout()
-    plt.subplots_adjust(top=0.88)
-    plt.savefig(qc_dir / "tss_nucleotide_frequency.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: tss_nucleotide_frequency.png")
+    plt.savefig(qc_dir / "tss_nucleotide_frequency.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("QC: tss_nucleotide_frequency.png (%d output(s), grid)", n)
 
 
 def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
@@ -294,19 +314,25 @@ def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
             })
         rows.append(row)
 
-    df = pd.DataFrame(rows).set_index("Sample").T
-    df = df[~(df == "NA").all(axis=1)]
+    # Keep one TSS output per row.  Transposing this table makes the figure grow
+    # horizontally with every condition/replicate and becomes unrenderable for
+    # large experiments.
+    df = pd.DataFrame(rows).set_index("Sample")
+    df = df.loc[:, ~(df == "NA").all(axis=0)]
 
-    fig, ax = plt.subplots(figsize=(max(6, 3 * len(rows)), len(df) * 0.5 + 1))
+    fig, ax = plt.subplots(figsize=(max(10, 1.25 * len(df.columns)),
+                                    max(4, 0.34 * len(df) + 1.8)))
     ax.axis("off")
     tbl = ax.table(cellText=df.values, rowLabels=df.index,
                    colLabels=df.columns, cellLoc="center", loc="center")
-    tbl.auto_set_font_size(False); tbl.set_fontsize(9)
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(7 if len(df) > 30 else 8)
     tbl.auto_set_column_width(col=list(range(len(df.columns) + 1)))
     plt.title("TSR Summary", fontsize=11, pad=10)
     plt.tight_layout()
-    plt.savefig(qc_dir / "tsr_summary.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: tsr_summary.png")
+    plt.savefig(qc_dir / "tsr_summary.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("QC: tsr_summary.png (%d TSS output(s))", len(df))
 
 
 def qc_tsr_annotation(cfg, species, sample, qc_dir) -> None:
@@ -331,15 +357,20 @@ def qc_tsr_annotation(cfg, species, sample, qc_dir) -> None:
     mdf = mdf.loc[:, (mdf > 0).any(axis=0)]
     if mdf.empty:
         log.info("QC TSR annotation: no annotation counts found — skipping"); return
-    ax = mdf.plot(kind="bar", stacked=True, figsize=(max(6, 2 * len(rows)), 5),
+    # Horizontal bars let the figure grow vertically with the number of TSS
+    # outputs instead of becoming hundreds of inches wide.
+    ax = mdf.plot(kind="barh", stacked=True,
+                  figsize=(11, max(5, 0.32 * len(rows) + 2)),
                   colormap="tab10")
-    ax.set_ylabel("Number of TSR clusters")
+    ax.set_xlabel("Number of TSR clusters")
+    ax.set_ylabel("TSS output")
     ax.set_title("TSR Annotation Categories")
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=30, ha="right")
+    ax.tick_params(axis="y", labelsize=7)
     plt.legend(bbox_to_anchor=(1.01, 1), loc="upper left", fontsize=8)
     plt.tight_layout()
-    plt.savefig(qc_dir / "tsr_annotation.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: tsr_annotation.png")
+    plt.savefig(qc_dir / "tsr_annotation.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    log.info("QC: tsr_annotation.png (%d TSS output(s))", len(rows))
 
 
 def _tagdir_stats_rows(tagdirs_with_labels) -> list[dict]:
