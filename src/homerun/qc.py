@@ -6,6 +6,7 @@ divergence heatmaps live directly in Species/QC/.
 from __future__ import annotations
 
 import math
+import re
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt  # noqa: E402
@@ -921,6 +922,31 @@ def _remove_qc_raw_log_copies(qc_dir) -> None:
         log.info("QC cleanup: removed %d raw trim/alignment .txt file(s)", removed)
 
 
+
+def _natural_condition_key(label: str):
+    """Sort D<number> conditions numerically, with a natural fallback.
+
+    Examples with D tokens:
+      D0, D1, D2, ..., D10, D21
+
+    Labels without a D<number> token are still sorted naturally, so:
+      sample2 comes before sample10.
+    """
+    label_str = str(label)
+
+    day_match = re.search(r"(?:^|_)D(\d+)(?:_|$)", label_str)
+
+    fallback = tuple(
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", label_str)
+    )
+
+    if day_match:
+        return (0, int(day_match.group(1)), fallback)
+
+    return (1, fallback)
+
+
 def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
     """Create divergent A/C/G/T heatmaps from condition-preserving combo TagDirs."""
     samples = list(samples if samples is not None else iter_samples(cfg))
@@ -1005,6 +1031,17 @@ def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
                     continue
 
                 plot_frame_transposed = pd.DataFrame(matrices[nt]).T
+
+                # Natural condition order:
+                # D0, D1, D2, ..., D10, D21.
+                # Labels without D<number> still sort naturally.
+                plot_frame_transposed = plot_frame_transposed.loc[
+                    sorted(
+                        plot_frame_transposed.index,
+                        key=_natural_condition_key,
+                    )
+                ]
+
                 plot_frame_transposed = plot_frame_transposed.dropna(
                     axis=1, how="all"
                 )
