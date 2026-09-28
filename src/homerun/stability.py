@@ -12,7 +12,7 @@ matplotlib.use("Agg")
 from matplotlib import pyplot as plt   # noqa: E402
 import pandas as pd                     # noqa: E402
 
-from .utils import log, iter_samples    # noqa: E402
+from .utils import assay_of_leaf, iter_leaf_dirs, iter_samples, log  # noqa: E402
 
 STABLE_C, UNSTABLE_C = "#2c7fb8", "#de2d26"
 DISTAL_C, PROX_C     = "#756bb1", "#31a354"
@@ -75,15 +75,21 @@ def _location(cfg, df):
 
 
 def _run_stability_one(cfg, species, sample) -> None:
-    if not cfg.combo_tagdir(species, sample, "totalRNA").is_dir():
-        log.info("stability: no totalRNA-combo for %s/%s — skipping (need total RNA).",
+    has_total_rna = any(
+        sp == species and sa == sample and assay_of_leaf(leaf_name) == "totalRNA"
+        and cfg.leaf_tagdir(species, sample, leaf_name).is_dir()
+        for sp, sa, leaf_name, _r1 in iter_leaf_dirs(cfg)
+    )
+    if not has_total_rna:
+        log.info("stability: no totalRNA replicate for %s/%s — skipping (need total RNA).",
                  species, sample)
         return
 
     tss_dir = cfg.sample_tss(species, sample)
     tss_files = sorted(
         path for path in tss_dir.glob("*.tss.txt")
-        if path.name.startswith(f"{sample}.")
+        if (path.name.startswith(f"{sample}.") or
+            path.name.startswith(f"{sample}_"))
     )
     if not tss_files:
         return

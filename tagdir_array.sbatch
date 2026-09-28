@@ -2,9 +2,11 @@
 #SBATCH --job-name=csrna_tagdir
 #SBATCH --time=4:00:00
 #SBATCH --nodes=1 --ntasks=1 --cpus-per-task=4 --mem=5GB
-# Phase 2: one task per R1 file — build one sample-prefixed leaf TagDir.
-# Same indexing as align_array.sbatch (one R1 file = one leaf run), so task N
-# here builds the TagDir for the SAM file task N of align_array produced.
+# Phase 2: one task per R1 file. Files sharing the same parsed replicate
+# identity (for example multiple csRNA_r1 lanes) are merged into one individual
+# TagDir. Replicates differing only by their final _rN marker are additionally
+# merged into a condition-preserving <full-prefix>-combo TagDir. Canonical
+# sorted tasks perform each build so duplicate lane/replicate tasks do not race.
 set -euo pipefail
 
 # Args from submit_array.sh: <conda_module> <conda_env> <project> [python flags...]

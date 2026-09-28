@@ -26,13 +26,13 @@ def test_nucleotide_divergence_heatmaps_cover_all_bases_and_samples(cfg):
     qc_nucleotide_divergence_heatmaps(cfg, samples)
 
     qc_root = cfg.species_qc("homo_sapiens")
-    assert (qc_root / "csRNA_nucleotide_divergence_heatmap.png").is_file()
-    assert (qc_root / "csRNA_nucleotide_divergence_heatmap.svg").is_file()
     for nucleotide in "ACGT":
-        data_path = qc_root / f"csRNA_{nucleotide}_nucleotide_divergence.tsv"
+        assert (qc_root / f"csRNA_{nucleotide}_DivergentPlot.png").is_file()
+        assert (qc_root / f"csRNA_{nucleotide}_DivergentPlot.svg").is_file()
+        data_path = qc_root / f"csRNA_{nucleotide}_Divergent_Data.tsv"
         assert data_path.is_file()
         data = pd.read_csv(data_path, sep="\t", index_col=0)
-        assert set(data.index) == {"K562", "IMR90"}
+        assert set(data.index) == {"K562_csRNA", "IMR90_csRNA"}
         assert data.to_numpy().mean() == pytest.approx(0.0, abs=1e-12)
 
 

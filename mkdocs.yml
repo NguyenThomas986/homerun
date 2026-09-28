@@ -1,10 +1,19 @@
 site_name: HOMERun
 site_url: https://thomasmnguyen.dev/homerun/
+site_description: A SLURM-oriented csRNA-seq analysis pipeline
+repo_url: https://github.com/NguyenThomas986/homerun
+repo_name: NguyenThomas986/homerun
+edit_uri: edit/main/docs/
+strict: true
 
 theme:
   name: material
   logo: assets/images/duttke_lab_logo.svg
   favicon: assets/images/duttke_lab_logo.svg
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
 
   palette:
     - scheme: slate
@@ -59,6 +68,6 @@ markdown_extensions:
       alternate_style: true
 
 extra:
-  announcement: "HOMERun is in alpha — nothing is finalized yet."
+  announcement: "HOMERun is in alpha — interfaces and output names may still change."
 
 copyright: 'HOMERun · <a href="https://labs.wsu.edu/duttke/">Duttke Lab</a> · Washington State University'

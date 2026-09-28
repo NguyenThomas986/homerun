@@ -42,6 +42,26 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
+  docs:
+    name: Build documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install documentation dependencies
+        run: python -m pip install ".[docs]"
+
+      - name: Build documentation
+        run: python -m mkdocs build --strict
+
   build:
     name: Build package
     runs-on: ubuntu-latest

@@ -15,7 +15,8 @@ dependencies = [
     "numpy>=1.24",
     "matplotlib>=3.7",
     "seaborn>=0.12",
-    "reportlab>=4.0"
+    "reportlab>=4.0",
+    "openpyxl>=3.1"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -35,7 +36,9 @@ keywords = ["rna-seq", "csrna-seq", "slurm", "hpc", "bioinformatics", "pipeline"
 test = [
     "pytest>=8.0",
 ]
- 
+docs = [
+    "mkdocs-material>=9.5,<10",
+]
 
 [project.scripts]
 homerun = "homerun.pipeline:main"
