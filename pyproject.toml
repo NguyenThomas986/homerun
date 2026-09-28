@@ -36,7 +36,9 @@ keywords = ["rna-seq", "csrna-seq", "slurm", "hpc", "bioinformatics", "pipeline"
 test = [
     "pytest>=8.0",
 ]
- 
+docs = [
+    "mkdocs-material>=9.5,<10",
+]
 
 [project.scripts]
 homerun = "homerun.pipeline:main"

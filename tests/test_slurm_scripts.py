@@ -9,7 +9,6 @@ WORKERS = (
     "prepare.sbatch",
     "align_array.sbatch",
     "tagdir_array.sbatch",
-    "tagdirs_combo_array.sbatch",
     "bedgraphs_array.sbatch",
     "tss_array.sbatch",
     "collect.sbatch",
@@ -28,7 +27,12 @@ def test_slurm_scripts_import_src_layout():
 def test_controller_sizes_arrays_after_prepare_and_fails_closed():
     script = _text("submit_array.sh")
     assert script.index("sbatch --wait --parsable") < script.index("--count-samples")
-    assert "--dependency=afterany" not in script
+    # A canonical tagdir task can consume SAMs from several align-array tasks,
+    # so it must wait for the whole align array. The worker then fails closed
+    # if any expected SAM is missing instead of building a partial combo.
+    assert "--dependency=afterany:${ARRAY}" in script
+    assert "tagdirs_combo_array.sbatch" not in script
+    assert "--dependency=afterok:${TAGDIR}" in script
     assert '--array=0-$((S-1))%"${TSS_THROTTLE}"' in script
 
 

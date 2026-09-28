@@ -79,11 +79,10 @@ def _build_replicate_tagdir(cfg, key, r1s) -> None:
     expected = [_sam_for_r1(cfg, species, sample, r1) for r1 in r1s]
     missing = [sam for sam in expected if not sam.exists()]
     if missing:
-            raise RuntimeError(
+        raise RuntimeError(
             "Cannot build TagDir because aligned SAM files are missing: "
             + ", ".join(str(path) for path in missing)
-            )
-    return
+        )
 
     _make_tagdir(
         expected,
@@ -105,13 +104,10 @@ def _build_combo_tagdir(cfg, key, r1s) -> None:
     expected = [_sam_for_r1(cfg, species, sample, r1) for r1 in r1s]
     missing = [sam for sam in expected if not sam.exists()]
     if missing:
-        log.warning(
-            "tagdir combo: %s/%s/%s is missing %d of %d aligned SAM file(s); "
-            "not building a partial combo: %s",
-            species, sample, combo_leaf, len(missing), len(expected),
-            ", ".join(path.name for path in missing),
+        raise RuntimeError(
+            "Cannot build combo TagDir because aligned SAM files are missing: "
+            + ", ".join(str(path) for path in missing)
         )
-        return
 
     _make_tagdir(
         expected,
