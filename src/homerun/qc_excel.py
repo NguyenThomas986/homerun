@@ -147,11 +147,6 @@ def _peak_rows(cfg):
                     r"Total input reads:\s+([\d.]+)",
                     float,
                 ),
-                "Putative TSS": _grab(
-                    text,
-                    r"total putative TSS clusters\s+(\d+)",
-                    int,
-                ),
                 "Valid TSS": _grab(
                     text,
                     r"Valid TSS clusters\s+(\d+)",
