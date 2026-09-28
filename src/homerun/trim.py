@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import shutil
 
-from .utils import run, log, seq_type, done, list_r1, leaf_dir, find_r2_for_r1
+from .utils import run, log, assay_for_fastq, done, list_r1, leaf_dir, find_r2_for_r1
 
 
 def _skewer_cmd(cfg, r1, r2, out_prefix: str) -> str:
@@ -42,7 +42,7 @@ def _skewer_cmd(cfg, r1, r2, out_prefix: str) -> str:
 
 
 def trim_one(cfg, r1) -> None:
-    st = seq_type(r1.name)
+    st = assay_for_fastq(cfg, r1)
     trimmed_dir = leaf_dir(r1) / "Trimmed"
     trimmed_dir.mkdir(parents=True, exist_ok=True)
     if st in ("csRNA", "sRNA"):                              # single-end
@@ -57,7 +57,7 @@ def trim_one(cfg, r1) -> None:
             if src.exists():
                 shutil.move(str(src), str(trimmed_dir / src.name))
     elif st == "totalRNA":                                   # paired-end, via skewer
-        r2 = find_r2_for_r1(r1)
+        r2 = find_r2_for_r1(r1, cfg)
         if r2 is None:
             log.warning("trim: could not uniquely identify R2 mate for %s in %s "
                        "(same-basename substitution doesn't hold for e.g. ENCODE "

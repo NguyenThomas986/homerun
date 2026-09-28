@@ -11,7 +11,8 @@ import glob
 import shutil
 from datetime import datetime
 from pathlib import Path
-from .utils import run, log, parse_sample_name, list_samples
+from .metadata import validate_metadata_fastqs
+from .utils import run, log, sample_identity, list_samples
 
 # Per-sample output directories that indicate a PREVIOUS run already
 # produced results in this project (see find_existing_outputs()). Report
@@ -100,7 +101,7 @@ def _stage_one(cfg, src: Path) -> None:
     dir (Species/RawData/ — shared across every replicate of every
     assay in that sample, not one folder per assay or per replicate; the
     filename itself still uniquely identifies both downstream)."""
-    species, sample, _leaf = parse_sample_name(src.name)
+    species, sample, _leaf = sample_identity(cfg, src)
     dst_dir = cfg.rawdata_dir(species, sample)
     dst_dir.mkdir(parents=True, exist_ok=True)
     dst = dst_dir / src.name
@@ -151,8 +152,10 @@ def copy_raw(cfg) -> None:
         return
     for src in matches:
         try:
-            species, sample, _leaf = parse_sample_name(src.name)
+            species, sample, _leaf = sample_identity(cfg, src)
         except ValueError as exc:
+            if cfg.metadata:
+                raise
             log.warning("copy_raw: skipping %s (%s)", src.name, exc)
             continue
         dst_dir = cfg.rawdata_dir(species, sample)
@@ -174,6 +177,7 @@ def stage_loose_fastqs(cfg) -> None:
     skipped with a warning rather than crashing the whole prepare step.
     Safe to call repeatedly — a no-op once everything is staged.
     """
+    validate_metadata_fastqs(cfg)
     loose = sorted(
         p for p in cfg.project.glob("*")
         if p.is_file()
@@ -187,7 +191,10 @@ def stage_loose_fastqs(cfg) -> None:
         try:
             _stage_one(cfg, src)
         except ValueError as exc:
+            if cfg.metadata:
+                raise
             log.warning("stage: skipping %s (%s)", src.name, exc)
+    validate_metadata_fastqs(cfg)
 
 def ensure_starindex(cfg) -> None:
     if cfg.aligner != "star":
@@ -269,12 +276,14 @@ def write_config_summary(cfg) -> None:
 
 def prepare(cfg) -> None:
     log.info("=== PREPARE: folders / stage loose / raw copy / STARIndex ===")
+    validate_metadata_fastqs(cfg)
     if getattr(cfg, "force", False):
         wipe_outputs(cfg)
     validate_gtf(cfg)
     setup_dirs(cfg)
     stage_loose_fastqs(cfg)
     copy_raw(cfg)
+    validate_metadata_fastqs(cfg)
     if cfg.aligner == "star":
         ensure_starindex(cfg)
     else:

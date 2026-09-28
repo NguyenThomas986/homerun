@@ -22,7 +22,7 @@ from .utils import (
     iter_leaf_dirs,
     list_r1,
     log,
-    parse_sample_name,
+    sample_identity,
     run,
 )
 
@@ -132,7 +132,7 @@ def run_leaf_tagdirs(cfg, sample_index=None) -> None:
         if not (0 <= sample_index < len(r1s)):
             raise IndexError(f"sample_index {sample_index} out of range (0-{len(r1s)-1})")
         selected = r1s[sample_index]
-        key = parse_sample_name(selected.name)
+        key = sample_identity(cfg, selected)
         members = groups[key]
         if selected != members[0]:
             log.info(

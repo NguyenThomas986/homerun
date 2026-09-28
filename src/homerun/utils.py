@@ -8,6 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from .metadata import metadata_record_for_fastq, validate_metadata_fastqs
+
 log = logging.getLogger("csrnaseq")
 
 
@@ -180,7 +182,23 @@ def parse_sample_name(filename: str) -> tuple[str, str, str]:
     return species, sample, leaf_name
 
 
-def find_r2_for_r1(r1: Path):
+def sample_identity(cfg, fastq) -> tuple[str, str, str]:
+    """Resolve species/sample/leaf from metadata or the legacy filename."""
+    record = metadata_record_for_fastq(cfg, fastq)
+    if record is None:
+        return parse_sample_name(Path(fastq).name)
+    return record["species"], record["sample"], record["leaf_name"]
+
+
+def assay_for_fastq(cfg, fastq) -> str | None:
+    """Resolve assay from metadata, falling back exactly to filename mode."""
+    record = metadata_record_for_fastq(cfg, fastq)
+    if record is None:
+        return seq_type(Path(fastq).name)
+    return "totalRNA" if record["assay"] == "RNA" else record["assay"]
+
+
+def find_r2_for_r1(r1: Path, cfg=None):
     """Locate r1's paired R2 FASTQ by parsed identity, not by filename
     substitution.
 
@@ -205,7 +223,7 @@ def find_r2_for_r1(r1: Path):
     matches — callers should treat None as "couldn't uniquely identify the
     mate" and warn/skip rather than guess.
     """
-    species, sample, leaf_name = parse_sample_name(r1.name)
+    identity = sample_identity(cfg, r1) if cfg is not None else parse_sample_name(r1.name)
     candidates = [
         p for p in r1.parent.glob("*_R2*")
         if p.name.endswith(".fastq") or p.name.endswith(".fastq.gz")
@@ -213,9 +231,12 @@ def find_r2_for_r1(r1: Path):
     matches = []
     for p in candidates:
         try:
-            if parse_sample_name(p.name) == (species, sample, leaf_name):
+            candidate = sample_identity(cfg, p) if cfg is not None else parse_sample_name(p.name)
+            if candidate == identity:
                 matches.append(p)
         except ValueError:
+            if cfg is not None and getattr(cfg, "metadata", ""):
+                raise
             continue
     return matches[0] if len(matches) == 1 else None
 
@@ -251,6 +272,7 @@ def list_r1(cfg):
     """Sorted list of R1 FASTQs under every Species/RawData/ —
     the unit of array parallelism. The array task index maps 1:1 to this
     (deterministic) ordering."""
+    validate_metadata_fastqs(cfg)
     return sorted(
         p for p in cfg.project.glob("*/RawData/*_R1*")
         if p.name.endswith(".fastq") or p.name.endswith(".fastq.gz")
@@ -307,7 +329,7 @@ def iter_leaf_dirs(cfg):
     an individual replicate, e.g. tagdirs/bedgraphs/ritrie.
     """
     for r1 in list_r1(cfg):
-        species, sample, leaf_name = parse_sample_name(r1.name)
+        species, sample, leaf_name = sample_identity(cfg, r1)
         yield species, sample, leaf_name, r1
 
 

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import csv
+import glob
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -203,3 +205,82 @@ def load_sample_metadata(path) -> dict[str, dict[str, str]]:
         )
 
     return metadata
+
+
+@lru_cache(maxsize=16)
+def _cached_metadata(path: str, modified_ns: int, size: int):
+    """Cache parsed manifests while invalidating after an on-disk change."""
+    del modified_ns, size
+    return load_sample_metadata(path)
+
+
+def metadata_for_config(cfg) -> dict[str, dict[str, str]] | None:
+    """Load cfg.metadata once, or return None when filename mode is active."""
+    configured = getattr(cfg, "metadata", "")
+    if not configured:
+        return None
+    path = Path(configured).expanduser().resolve()
+    if not path.is_file():
+        raise ValueError(f"Metadata file does not exist: {path}")
+    stat = path.stat()
+    return _cached_metadata(str(path), stat.st_mtime_ns, stat.st_size)
+
+
+def metadata_record_for_fastq(cfg, fastq) -> dict[str, str] | None:
+    """Return an exact-basename metadata match, strictly when configured."""
+    metadata = metadata_for_config(cfg)
+    if metadata is None:
+        return None
+    name = Path(fastq).name
+    try:
+        return metadata[name]
+    except KeyError as exc:
+        raise ValueError(
+            f"Discovered FASTQ '{name}' has no entry in metadata file "
+            f"'{Path(cfg.metadata)}'"
+        ) from exc
+
+
+def _is_fastq(path: Path) -> bool:
+    return path.is_file() and (
+        path.name.endswith(".fastq") or path.name.endswith(".fastq.gz")
+    )
+
+
+def discovered_fastqs(cfg) -> list[Path]:
+    """Find the FASTQs HomeRun can stage or already has under RawData/."""
+    found = [path for path in cfg.project.glob("*") if _is_fastq(path)]
+    found.extend(
+        path for path in cfg.project.glob("*/RawData/*") if _is_fastq(path)
+    )
+    if getattr(cfg, "copy_src", ""):
+        found.extend(
+            path for value in glob.glob(cfg.copy_src)
+            if _is_fastq(path := Path(value))
+        )
+    return sorted(set(found))
+
+
+def validate_metadata_fastqs(cfg) -> None:
+    """Require a one-to-one filename inventory when metadata mode is active."""
+    metadata = metadata_for_config(cfg)
+    if metadata is None:
+        return
+
+    discovered = discovered_fastqs(cfg)
+    discovered_names = {path.name for path in discovered}
+    missing_rows = sorted(discovered_names - set(metadata))
+    if missing_rows:
+        raise ValueError(
+            "Discovered FASTQ file(s) missing from metadata: "
+            + ", ".join(missing_rows)
+        )
+
+    missing_files = sorted(set(metadata) - discovered_names)
+    if missing_files:
+        raise ValueError(
+            "Metadata FASTQ entr"
+            + ("ies do" if len(missing_files) != 1 else "y does")
+            + " not match any discovered FASTQ file: "
+            + ", ".join(missing_files)
+        )

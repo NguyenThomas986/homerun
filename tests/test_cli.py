@@ -37,6 +37,12 @@ def test_no_args_parses_with_defaults():
     assert args.sample_index is None
     assert args.group_index is None
     assert args.force is False
+    assert args.metadata is None
+
+
+def test_metadata_option_is_accepted():
+    args = build_parser().parse_args(["--metadata", "samples.xlsx"])
+    assert args.metadata == "samples.xlsx"
 
 
 def test_steps_accepts_valid_step_names():

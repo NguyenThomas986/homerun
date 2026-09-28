@@ -24,6 +24,7 @@ import argparse
 import sys
 
 from .config import load_config
+from .metadata import validate_metadata_fastqs
 from .utils import (
     setup_logging,
     log,
@@ -113,6 +114,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--project",
         help="Project root (default: $CSRNA_PROJECT or CWD).",
+    )
+
+    p.add_argument(
+        "--metadata",
+        default=None,
+        help=(
+            "CSV/XLSX FASTQ metadata manifest (overrides CSRNA_METADATA; "
+            "default: filename-based sample parsing)."
+        ),
     )
 
     p.add_argument(
@@ -533,6 +543,12 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
     cfg = load_config(args)
+
+    try:
+        validate_metadata_fastqs(cfg)
+    except ValueError as exc:
+        print(f"Metadata validation failed: {exc}", file=sys.stderr)
+        return 1
 
 
 

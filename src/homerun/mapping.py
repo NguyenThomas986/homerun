@@ -17,7 +17,7 @@ mate its own independent accession number rather than sharing a basename.
 from __future__ import annotations
 import os
 from pathlib import Path
-from .utils import run, log, seq_type, done, list_r1, leaf_dir, find_r2_for_r1
+from .utils import run, log, assay_for_fastq, done, list_r1, leaf_dir, find_r2_for_r1
 
 
 def _check_index(cfg) -> None:
@@ -106,7 +106,7 @@ def _hisat2_cmd(cfg, reads_flag: str, out_sam: str, aligned_dir) -> str:
             f"{reads_flag} -S {out_sam} 2> {stats}")
 
 def map_one(cfg, r1) -> None:
-    st = seq_type(r1.name)
+    st = assay_for_fastq(cfg, r1)
     trimmed_dir = leaf_dir(r1) / "Trimmed"
     aligned_dir = leaf_dir(r1) / "Aligned"
     aligned_dir.mkdir(parents=True, exist_ok=True)
@@ -124,7 +124,7 @@ def map_one(cfg, r1) -> None:
             run(_star_cmd(cfg, str(trimmed), str(aligned_dir / prefix)), label=f"STAR SE {r1.name}")
     elif st == "totalRNA":                                   # paired-end (trimmed by homerTools -pe)
         base = r1.name.split("_R1")[0]
-        r2 = find_r2_for_r1(r1)
+        r2 = find_r2_for_r1(r1, cfg)
         if r2 is None:
             log.warning("mapping: could not uniquely identify R2 mate for %s in %s "
                        "— skipping.", r1.name, r1.parent)
