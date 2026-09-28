@@ -16,7 +16,7 @@ def test_version_is_accessible():
     import homerun
     assert hasattr(homerun, "__version__")
     assert isinstance(homerun.__version__, str)
-    assert homerun.__version__ == "1.0.0"
+    assert homerun.__version__ == "1.1.0"
 
 
 @pytest.mark.parametrize("module_name", [
