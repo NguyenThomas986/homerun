@@ -28,6 +28,7 @@ control SLURM and are not Python pipeline settings.
 | Flag | Environment variable | Default |
 | --- | --- | --- |
 | `--gtf` | `CSRNA_GTF` | unset; RIT/RIE is skipped |
+| `--metadata` | `CSRNA_METADATA` | unset; parse identities from FASTQ filenames |
 | `--threads` | `CSRNA_THREADS` | `SLURM_CPUS_PER_TASK` or `20` |
 | `--trim-min` | `CSRNA_TRIM_MINLEN` | `20` |
 | `--trim-max` | `CSRNA_TRIM_MAXLEN` | `58` |
@@ -42,6 +43,9 @@ See the [CLI reference](cli.md) for every flag and its meaning.
 Preparation writes `<project>/config.txt`. It records the effective settings,
 the samples HOMERun discovered, and the staged FASTQ paths. Check this file
 before troubleshooting later stages; it shows what the pipeline actually used.
+When metadata mode is active, the resolved metadata path appears as
+`metadata = /path/to/samples.xlsx`, and the sample list uses metadata-defined
+species/sample identities.
 
 !!! note "GTF is optional"
     `--gtf` enables the RIT/RIE metric. Omitting it is valid and causes that

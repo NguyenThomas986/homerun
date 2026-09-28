@@ -6,7 +6,7 @@ import csv
 import pytest
 
 from homerun import prepare, tagdirs, tss
-from homerun.utils import iter_leaf_dirs, parse_sample_name
+from homerun.utils import assay_for_fastq, iter_leaf_dirs, parse_sample_name
 
 
 HEADERS = ["FASTQ", "Species", "Sample", "Condition", "Assay", "Replicate"]
@@ -33,6 +33,7 @@ def test_metadata_stages_filename_without_species(make_cfg, make_fastq, project_
     assert list(iter_leaf_dirs(cfg)) == [
         ("homo_sapiens", "K562", "D2_csRNA_r1", staged)
     ]
+    assert assay_for_fastq(cfg, staged) == "csRNA"
     # Without a manifest, the unchanged legacy parser interprets the first
     # two filename tokens as species; it cannot recover the intended species.
     assert parse_sample_name(name) != ("homo_sapiens", "K562", "D2_csRNA_r1")

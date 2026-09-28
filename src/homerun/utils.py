@@ -323,10 +323,10 @@ def iter_leaf_dirs(cfg):
     per-assay one (RawData/Trimmed/Aligned are shared by every replicate of
     every assay in a sample — see Config.rawdata_dir/trimmed_dir/
     aligned_dir), so 'which replicate/assay is this' can't be read off
-    directory structure anymore; it's recovered from the FILENAME via
-    parse_sample_name(), the same parser prepare.py already trusted to
-    stage the file correctly in the first place. Used by steps that key off
-    an individual replicate, e.g. tagdirs/bedgraphs/ritrie.
+    directory structure anymore; it is recovered from metadata when supplied,
+    or from the filename via parse_sample_name() in legacy mode. The same
+    resolver stages the file correctly in prepare.py. Used by steps that key
+    off an individual replicate, e.g. tagdirs/bedgraphs/ritrie.
     """
     for r1 in list_r1(cfg):
         species, sample, leaf_name = sample_identity(cfg, r1)

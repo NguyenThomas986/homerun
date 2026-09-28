@@ -23,7 +23,7 @@ Version: 1.0.0
 ## Usage
 
 ```text
-homerun [-h] [--project PROJECT] [--log-path LOG_PATH]
+homerun [-h] [--project PROJECT] [--metadata METADATA] [--log-path LOG_PATH]
         [--steps {trim,align,tagdirs,tagdirs-combo,bedgraphs,tss,ritrie,qc,stability,report} ...]
         [--sample-index SAMPLE_INDEX] [--group-index GROUP_INDEX]
         [--skip-prepare] [--force] [--only-prepare]
@@ -45,6 +45,7 @@ homerun [-h] [--project PROJECT] [--log-path LOG_PATH]
 | --- | --- |
 | `-h`, `--help` | Show the help message and exit. |
 | `--project PROJECT` | Project root (default: `$CSRNA_PROJECT` or CWD). |
+| `--metadata PATH` | Optional `.csv` or `.xlsx` FASTQ metadata manifest (overrides `CSRNA_METADATA`). When set, metadata defines species/sample/condition/assay/replicate and every discovered FASTQ must have an exact-basename row. When omitted, existing filename parsing is unchanged. |
 | `--log-path LOG_PATH` | Pipeline log file path (overrides `CSRNA_LOG`; else a timestamped file under `<project>/logs/`). |
 | `--steps STEP [STEP ...]` | Run only these steps (still executed in canonical order). Choices: `trim`, `align`, `tagdirs`, `tagdirs-combo`, `bedgraphs`, `tss`, `ritrie`, `qc`, `stability`, `report`. |
 | `--sample-index N` | 0-based index into RawData R1 files. Restricts `trim`/`align`/`tagdirs` to one leaf run. Used by `SLURM_ARRAY_TASK_ID`. |
@@ -56,6 +57,9 @@ homerun [-h] [--project PROJECT] [--log-path LOG_PATH]
 | `--count-groups` | Print the number of Species/Sample groups and exit. |
 | `--check-rerun` | Preflight for wrapper scripts: exit 1 (with a message) if every staged sample already has a populated `QC/` and `--force` was not given — i.e. the run would touch nothing new. Exit 0 otherwise. Submits/runs nothing itself; call it *before* submitting SLURM jobs. |
 | `--stage-raw` | Move loose `*_R1*` / `*_R2*` FASTQs into `RawData/` and exit. |
+
+See [Input files](input-files.md) for the required metadata columns, CSV/XLSX
+examples, leaf-name construction, and validation rules.
 
 ## Config overrides
 

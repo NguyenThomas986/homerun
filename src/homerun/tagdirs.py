@@ -1,6 +1,7 @@
 """Step 3 — build one HOMER tag directory per biological replicate.
 
-FASTQ filenames are reduced to a replicate identity by ``parse_sample_name``.
+FASTQs are reduced to a replicate identity by ``sample_identity`` (metadata
+when configured, otherwise the unchanged filename parser).
 Every aligned SAM with the same ``(species, sample, leaf_name)`` is supplied
 to one individual ``makeTagDirectory`` call.  A second TagDir combines leaf
 identities that differ only by the final replicate marker (``_r1``, ``_r2``,

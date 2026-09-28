@@ -15,6 +15,8 @@ OPTIONAL — enables extra features when set:
   CSRNA_GTF            path to a GTF annotation file. Only needed for the
                        'ritrie' step (RIT/RIE QC metric); without it, ritrie
                        is skipped with a log message rather than failing.
+  CSRNA_METADATA       path to an optional .csv/.xlsx sample metadata file.
+                       When unset, legacy filename parsing remains active.
 """
 from __future__ import annotations
 

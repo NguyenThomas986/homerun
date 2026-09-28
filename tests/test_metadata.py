@@ -79,6 +79,28 @@ def test_invalid_assay_raises(tmp_path):
         load_sample_metadata(path)
 
 
+def test_blank_species_and_invalid_replicate_raise(tmp_path):
+    blank_species = tmp_path / "blank-species.csv"
+    _write_csv(blank_species, [["input_R1.fastq.gz", "", "K562", "", "csRNA", "r1"]])
+    with pytest.raises(ValueError, match="blank required field Species"):
+        load_sample_metadata(blank_species)
+
+    bad_replicate = tmp_path / "bad-replicate.csv"
+    _write_csv(bad_replicate, [["input_R1.fastq.gz", "homo_sapiens", "K562", "", "csRNA", "one"]])
+    with pytest.raises(ValueError, match="Invalid replicate 'one'"):
+        load_sample_metadata(bad_replicate)
+
+
+def test_missing_file_and_unsupported_extension_raise(tmp_path):
+    with pytest.raises(ValueError, match="Metadata file does not exist"):
+        load_sample_metadata(tmp_path / "missing.csv")
+
+    unsupported = tmp_path / "samples.tsv"
+    unsupported.write_text("FASTQ\\tSpecies\\tAssay\\tReplicate\\n")
+    with pytest.raises(ValueError, match="Unsupported metadata extension '.tsv'"):
+        load_sample_metadata(unsupported)
+
+
 def test_missing_required_columns_raise(tmp_path):
     path = tmp_path / "samples.csv"
     _write_csv(path, [["x.fastq.gz", "homo_sapiens"]], headers=["FASTQ", "Species"])

@@ -2,7 +2,7 @@
 
 FASTQs always land under the flat Species/RawData/ layout (shared by every
 sample, assay, and replicate — see Config.rawdata_dir /
-utils.parse_sample_name) — there is no per-assay subfolder and no
+utils.sample_identity) — there is no per-assay subfolder and no
 project-level fallback.
 """
 from __future__ import annotations
@@ -97,7 +97,7 @@ def setup_dirs(cfg) -> None:
     log.info("  %s  %s", "exists " if existed else "CREATED", d)
 
 def _stage_one(cfg, src: Path) -> None:
-    """Parse src's filename and move/copy it into the sample's shared RawData/
+    """Resolve src's identity and move it into the sample's shared RawData/
     dir (Species/RawData/ — shared across every replicate of every
     assay in that sample, not one folder per assay or per replicate; the
     filename itself still uniquely identifies both downstream)."""

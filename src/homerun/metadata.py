@@ -249,9 +249,13 @@ def _is_fastq(path: Path) -> bool:
 
 def discovered_fastqs(cfg) -> list[Path]:
     """Find the FASTQs HomeRun can stage or already has under RawData/."""
-    found = [path for path in cfg.project.glob("*") if _is_fastq(path)]
+    found = [
+        path for path in cfg.project.glob("*")
+        if _is_fastq(path) and ("_R1" in path.name or "_R2" in path.name)
+    ]
     found.extend(
-        path for path in cfg.project.glob("*/RawData/*") if _is_fastq(path)
+        path for path in cfg.project.glob("*/RawData/*")
+        if _is_fastq(path) and ("_R1" in path.name or "_R2" in path.name)
     )
     if getattr(cfg, "copy_src", ""):
         found.extend(
