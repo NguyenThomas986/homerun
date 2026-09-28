@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=csrna_tss
 #SBATCH --time=4:00:00
-#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=16G
+#SBATCH --nodes=1 --ntasks=1 --cpus-per-task=8 --mem=32G
 # Phase 5: one task per Species/Sample — call individual and combo TSRs into
 # Species/TSS/.
 # submit_array.sh defaults this array to one concurrent task so samples of
