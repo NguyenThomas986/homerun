@@ -7,6 +7,8 @@ a SLURM wrapper script actually depends on.
 """
 from __future__ import annotations
 
+import csv
+
 import pytest
 
 from homerun.pipeline import build_parser, main, STEP_ORDER
@@ -38,11 +40,16 @@ def test_no_args_parses_with_defaults():
     assert args.group_index is None
     assert args.force is False
     assert args.metadata is None
+    assert args.init_metadata is False
 
 
 def test_metadata_option_is_accepted():
     args = build_parser().parse_args(["--metadata", "samples.xlsx"])
     assert args.metadata == "samples.xlsx"
+
+
+def test_init_metadata_option_is_accepted():
+    assert build_parser().parse_args(["--init-metadata"]).init_metadata is True
 
 
 def test_steps_accepts_valid_step_names():
@@ -181,6 +188,39 @@ def test_stage_raw_moves_loose_fastqs_and_exits(project_dir, make_fastq):
     dest = project_dir / "homo_sapiens" / "RawData" / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz"
     assert dest.is_file()
     assert (project_dir / "config.txt").is_file()
+
+
+def test_init_metadata_creates_csv_with_discovered_fastqs(project_dir, make_fastq, capsys):
+    loose = "opaque_cs_R1.fastq.gz"
+    staged = "opaque_rna_R2.fastq"
+    make_fastq(project_dir / loose)
+    rawdata = project_dir / "homo_sapiens" / "RawData"
+    rawdata.mkdir(parents=True)
+    make_fastq(rawdata / staged)
+
+    rc = main(["--project", str(project_dir), "--init-metadata"])
+
+    assert rc == 0
+    output = project_dir / "samples.csv"
+    with output.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.reader(handle))
+    assert rows == [
+        ["FASTQ", "Species", "Sample", "Condition", "Assay", "Replicate"],
+        [loose, "", "", "", "", ""],
+        [staged, "", "", "", "", ""],
+    ]
+    assert "Created" in capsys.readouterr().out
+
+
+def test_init_metadata_refuses_to_overwrite(project_dir, capsys):
+    output = project_dir / "samples.csv"
+    output.write_text("keep me")
+
+    rc = main(["--project", str(project_dir), "--init-metadata"])
+
+    assert rc == 1
+    assert output.read_text() == "keep me"
+    assert "already exists" in capsys.readouterr().err
 
 
 def test_sample_index_out_of_range_returns_nonzero(project_dir, make_fastq):

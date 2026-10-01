@@ -24,7 +24,7 @@ import argparse
 import sys
 
 from .config import load_config
-from .metadata import validate_metadata_fastqs
+from .metadata import initialize_metadata_csv, validate_metadata_fastqs
 from .utils import (
     setup_logging,
     log,
@@ -122,6 +122,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "CSV/XLSX FASTQ metadata manifest (overrides CSRNA_METADATA; "
             "default: filename-based sample parsing)."
+        ),
+    )
+
+    p.add_argument(
+        "--init-metadata",
+        action="store_true",
+        help=(
+            "Create <project>/samples.csv with discovered FASTQ filenames "
+            "and blank metadata fields, then exit. Refuses to overwrite."
         ),
     )
 
@@ -543,6 +552,16 @@ def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
 
     cfg = load_config(args)
+
+    if args.init_metadata:
+        try:
+            output, count = initialize_metadata_csv(cfg)
+        except ValueError as exc:
+            print(f"Could not initialize metadata: {exc}", file=sys.stderr)
+            return 1
+        print(f"Created {output} with {count} FASTQ row(s).")
+        print("Fill in Species, Assay, and Replicate; Sample and Condition are optional.")
+        return 0
 
     try:
         validate_metadata_fastqs(cfg)

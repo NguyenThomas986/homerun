@@ -23,7 +23,8 @@ Version: 1.0.0
 ## Usage
 
 ```text
-homerun [-h] [--project PROJECT] [--metadata METADATA] [--log-path LOG_PATH]
+homerun [-h] [--project PROJECT] [--metadata METADATA] [--init-metadata]
+        [--log-path LOG_PATH]
         [--steps {trim,align,tagdirs,tagdirs-combo,bedgraphs,tss,ritrie,qc,stability,report} ...]
         [--sample-index SAMPLE_INDEX] [--group-index GROUP_INDEX]
         [--skip-prepare] [--force] [--only-prepare]
@@ -46,6 +47,7 @@ homerun [-h] [--project PROJECT] [--metadata METADATA] [--log-path LOG_PATH]
 | `-h`, `--help` | Show the help message and exit. |
 | `--project PROJECT` | Project root (default: `$CSRNA_PROJECT` or CWD). |
 | `--metadata PATH` | Optional `.csv` or `.xlsx` FASTQ metadata manifest (overrides `CSRNA_METADATA`). When set, metadata defines species/sample/condition/assay/replicate and every discovered FASTQ must have an exact-basename row. When omitted, existing filename parsing is unchanged. |
+| `--init-metadata` | Create `<project>/samples.csv` with one row per discovered FASTQ and blank metadata fields, then exit. Refuses to overwrite an existing file. |
 | `--log-path LOG_PATH` | Pipeline log file path (overrides `CSRNA_LOG`; else a timestamped file under `<project>/logs/`). |
 | `--steps STEP [STEP ...]` | Run only these steps (still executed in canonical order). Choices: `trim`, `align`, `tagdirs`, `tagdirs-combo`, `bedgraphs`, `tss`, `ritrie`, `qc`, `stability`, `report`. |
 | `--sample-index N` | 0-based index into RawData R1 files. Restricts `trim`/`align`/`tagdirs` to one leaf run. Used by `SLURM_ARRAY_TASK_ID`. |

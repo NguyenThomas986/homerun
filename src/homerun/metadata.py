@@ -11,6 +11,7 @@ from typing import Iterable
 
 REQUIRED_COLUMNS = {"fastq", "species", "assay", "replicate"}
 OPTIONAL_COLUMNS = {"sample", "condition"}
+METADATA_COLUMNS = ["FASTQ", "Species", "Sample", "Condition", "Assay", "Replicate"]
 SUPPORTED_ASSAYS = {
     "csrna": "csRNA",
     "srna": "sRNA",
@@ -263,6 +264,29 @@ def discovered_fastqs(cfg) -> list[Path]:
             if _is_fastq(path := Path(value))
         )
     return sorted(set(found))
+
+
+def initialize_metadata_csv(cfg, filename: str = "samples.csv") -> tuple[Path, int]:
+    """Create a non-destructive starter CSV populated with FASTQ basenames."""
+    project = Path(cfg.project)
+    if not project.is_dir():
+        raise ValueError(f"Project directory does not exist: {project}")
+
+    output = project / filename
+    if output.exists():
+        raise ValueError(
+            f"Metadata template already exists: {output}. "
+            "Move, rename, or delete it before creating another."
+        )
+
+    fastq_names = sorted({path.name for path in discovered_fastqs(cfg)})
+    with output.open("x", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(METADATA_COLUMNS)
+        for name in fastq_names:
+            writer.writerow([name, "", "", "", "", ""])
+
+    return output, len(fastq_names)
 
 
 def validate_metadata_fastqs(cfg) -> None:

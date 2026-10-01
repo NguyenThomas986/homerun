@@ -51,6 +51,18 @@ homerun \
   --genome hg38
 ```
 
+To create a starter CSV automatically, place the FASTQs in the project root
+or existing `Species/RawData/` directories and run:
+
+```bash
+homerun --project /data/my-project --init-metadata
+```
+
+This creates `/data/my-project/samples.csv`, fills its `FASTQ` column with the
+exact discovered filenames, and leaves the biological fields blank for the
+user to complete. It never guesses biological metadata and refuses to
+overwrite an existing `samples.csv`.
+
 `CSRNA_METADATA` provides the same setting. An explicit `--metadata` value
 overrides the environment variable. The default is unset.
 
