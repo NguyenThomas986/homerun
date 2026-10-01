@@ -79,6 +79,14 @@ K562_D2_csRNA_r1_R1.fastq.gz,homo_sapiens,K562,D2,csRNA,r1
 K562_D2_sRNA_r1_R1.fastq.gz,homo_sapiens,K562,D2,sRNA,r1
 ```
 
+For a conventional total-RNA filename with no condition, leave the
+`Condition` cell empty:
+
+```csv
+FASTQ,Species,Sample,Condition,Assay,Replicate
+homo_sapiens_K562_RNA-r1_R1.fastq,homo_sapiens,K562,,RNA,r1
+```
+
 The equivalent Excel sheet looks like this:
 
 | FASTQ | Species | Sample | Condition | Assay | Replicate |
