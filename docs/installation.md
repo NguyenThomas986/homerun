@@ -1,13 +1,16 @@
 # Installation
 
-HOMERun can be installed three ways. **Conda is recommended**, because it also installs the external bioinformatics tools HOMERun depends on (HOMER, STAR, HISAT2, samtools, skewer). The other two methods install only the Python package — you provide the tools yourself.
+HOMERun can be installed three ways. **Conda is recommended**, because it also installs the external bioinformatics tools HOMERun depends on (HOMER, STAR, HISAT2, samtools, and skewer).
+
+If you do not already have Conda installed, see the [Conda installation guide](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html).
+
+The other two installation methods install only the Python package, so you will need to install the required bioinformatics tools separately.
 
 ## Recommended: Conda (Bioconda)
 
 ```bash
 conda install -c bioconda homerun
 ```
-<!-- TODO: Bioconda package not published yet — this command works once the recipe is merged. Confirm final package name if "homerun" is already taken on Bioconda/conda-forge. -->
 
 This pulls in every required tool automatically. Verify the install:
 
