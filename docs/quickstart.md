@@ -16,24 +16,26 @@ path/to/submit_array.sh \
   --partition partition_name \
   --conda-env conda_env_name \
   --genome-index /path/to/STARindex \
-  --genome mm10
+  --genome hg38
 ```
 
 <!-- TODO: confirm exact script name and flag names against `submit_array.sh --help` -->
 
 ## Run without SLURM
 
-If you do not have access to a SLURM cluster, run HomeRun directly:
+If you do not have access to a SLURM cluster, run HOMERun directly:
 
 ```bash
-homerun --project /path/to/project --genome mm10
+homerun --project /path/to/project --genome hg38
 ```
 
 Or run it as a Python module:
 
 ```bash
-python -m homerun --project /path/to/project --genome mm10
+python -m homerun --project /path/to/project --genome hg38
 ```
+
+In these examples, `hg38` is the genome identifier (homo_sapiens). Replace it with the genome appropriate for your dataset.
 
 <!-- TODO: confirm module name (homerun vs csrnaseq) and the required flags -->
 
