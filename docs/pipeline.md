@@ -34,12 +34,11 @@ Genome-browser tracks are generated from the tag directories for visualizing sig
 Capped-RNA peaks are called to identify active transcription start regions, using sRNA as an input control and totalRNA as a stability reference.
 
 - **Tool:** HOMER `findcsRNATSS.pl`
-- **Output:** `Species/Sample/TSS/<sample>.tss.txt`
-<!-- TODO: confirm output path -->
+- **Output:** `Species/TSS/<sample>.tss.txt`
 
 ## 6. Quality control & reporting
 
-Per-sample and cross-sample QC metrics are collected and rendered into a report: read-length distribution, nucleotide frequency, autocorrelation, tags-per-position, and adapter-trimming rates.
+Per-sample QC is written under `Species/QC/<sample>/`. Compact cross-sample A/C/G/T nucleotide-divergence heatmaps (PNG/SVG plus TSV matrices) are written directly under `Species/QC/` for csRNA and sRNA.
 <!-- TODO: confirm report format (HTML / PDF) -->
 
 ## 7. Stability analysis

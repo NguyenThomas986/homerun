@@ -1,7 +1,7 @@
 """Preparation: create folders, stage loose FASTQs, copy raw FASTQs, ensure STARIndex exists.
 
-FASTQs always land under the flat Species/Sample/RawData/ layout (shared by
-every assay and replicate of that sample — see Config.rawdata_dir /
+FASTQs always land under the flat Species/RawData/ layout (shared by every
+sample, assay, and replicate — see Config.rawdata_dir /
 utils.parse_sample_name) — there is no per-assay subfolder and no
 project-level fallback.
 """
@@ -17,7 +17,7 @@ from .utils import run, log, parse_sample_name, list_samples
 # produced results in this project (see find_existing_outputs()). Report
 # HTML lives inside QC/ and config.txt lives at the project root, so
 # neither needs its own entry here.
-OUTPUT_DIR_NAMES = ("Trimmed", "Aligned", "TagDirs", "bedGraphs", "TSS", "QC")
+OUTPUT_DIR_NAMES = ("Trimmed", "Aligned", "TagDirs", "bedGraphs", "TSS", "RITRIE", "QC")
 
 
 def find_existing_outputs(cfg) -> list[Path]:
@@ -31,7 +31,7 @@ def find_existing_outputs(cfg) -> list[Path]:
     """
     found = []
     for name in OUTPUT_DIR_NAMES:
-        for d in cfg.project.glob(f"*/*/{name}"):
+        for d in cfg.project.glob(f"*/{name}"):
             if d.is_dir() and any(d.iterdir()):
                 found.append(d)
     return sorted(found)
@@ -97,7 +97,7 @@ def setup_dirs(cfg) -> None:
 
 def _stage_one(cfg, src: Path) -> None:
     """Parse src's filename and move/copy it into the sample's shared RawData/
-    dir (Species/Sample/RawData/ — shared across every replicate of every
+    dir (Species/RawData/ — shared across every replicate of every
     assay in that sample, not one folder per assay or per replicate; the
     filename itself still uniquely identifies both downstream)."""
     species, sample, _leaf = parse_sample_name(src.name)
@@ -127,7 +127,7 @@ def wipe_outputs(cfg, keep_raw: bool = True) -> None:
     import shutil
     removed = []
     for name in OUTPUT_DIR_NAMES:  # Trimmed, Aligned, TagDirs, bedGraphs, TSS, QC
-        for d in sorted(cfg.project.glob(f"*/*/{name}")):
+        for d in sorted(cfg.project.glob(f"*/{name}")):
             if d.is_dir():
                 shutil.rmtree(d)
                 removed.append(d)
@@ -165,7 +165,7 @@ def copy_raw(cfg) -> None:
 
 def stage_loose_fastqs(cfg) -> None:
     """Move loose *_R1*/*_R2* FASTQs sitting in the project ROOT into their
-    Species/Sample/RawData/ dir.
+    Species/RawData/ dir.
 
     Non-recursive (only the project root is scanned, never subdirs), so files
     already staged are untouched. If a same-named file already exists at the
@@ -254,7 +254,7 @@ def write_config_summary(cfg) -> None:
             lines.append(f"{species}/{sample}")
  
     lines += ["", "[RawData]"]
-    raw_files = sorted(p for p in cfg.project.glob("*/*/RawData/*") if p.is_file())
+    raw_files = sorted(p for p in cfg.project.glob("*/RawData/*") if p.is_file())
     if not raw_files:
         lines.append("(none staged yet)")
     else:

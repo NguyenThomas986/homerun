@@ -106,7 +106,7 @@ def test_count_samples_on_empty_project_prints_zero(project_dir, capsys):
 
 
 def test_count_samples_counts_staged_r1_files(project_dir, capsys, make_fastq):
-    rawdata = project_dir / "homo_sapiens" / "K562" / "RawData"
+    rawdata = project_dir / "homo_sapiens" / "RawData"
     rawdata.mkdir(parents=True)
     make_fastq(rawdata / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz")
     make_fastq(rawdata / "homo_sapiens_K562_csRNA_r2_R1.fastq.gz")
@@ -123,7 +123,7 @@ def test_count_groups_on_empty_project_prints_zero(project_dir, capsys):
 
 
 def test_count_groups_counts_distinct_species_sample_pairs(project_dir, capsys, make_fastq):
-    rawdata = project_dir / "homo_sapiens" / "K562" / "RawData"
+    rawdata = project_dir / "homo_sapiens" / "RawData"
     rawdata.mkdir(parents=True)
     # two replicates of the SAME sample -> still one group
     make_fastq(rawdata / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz")
@@ -143,10 +143,10 @@ def test_check_rerun_on_empty_project_exits_zero(project_dir):
 
 
 def test_check_rerun_blocks_when_everything_already_finished(project_dir, make_fastq):
-    rawdata = project_dir / "homo_sapiens" / "K562" / "RawData"
+    rawdata = project_dir / "homo_sapiens" / "RawData"
     rawdata.mkdir(parents=True)
     make_fastq(rawdata / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz")
-    qc_dir = project_dir / "homo_sapiens" / "K562" / "QC"
+    qc_dir = project_dir / "homo_sapiens" / "QC" / "K562"
     qc_dir.mkdir(parents=True)
     (qc_dir / "qc_report.html").write_text("<html></html>")
     # Some other output dir must also exist for find_existing_outputs() to
@@ -157,10 +157,10 @@ def test_check_rerun_blocks_when_everything_already_finished(project_dir, make_f
 
 
 def test_check_rerun_force_bypasses_the_block(project_dir, make_fastq):
-    rawdata = project_dir / "homo_sapiens" / "K562" / "RawData"
+    rawdata = project_dir / "homo_sapiens" / "RawData"
     rawdata.mkdir(parents=True)
     make_fastq(rawdata / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz")
-    qc_dir = project_dir / "homo_sapiens" / "K562" / "QC"
+    qc_dir = project_dir / "homo_sapiens" / "QC" / "K562"
     qc_dir.mkdir(parents=True)
     (qc_dir / "qc_report.html").write_text("<html></html>")
 
@@ -172,7 +172,7 @@ def test_stage_raw_moves_loose_fastqs_and_exits(project_dir, make_fastq):
     make_fastq(project_dir / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz")
     rc = main(["--project", str(project_dir), "--stage-raw"])
     assert rc == 0
-    dest = project_dir / "homo_sapiens" / "K562" / "RawData" / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz"
+    dest = project_dir / "homo_sapiens" / "RawData" / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz"
     assert dest.is_file()
     assert (project_dir / "config.txt").is_file()
 
@@ -182,7 +182,7 @@ def test_sample_index_out_of_range_returns_nonzero(project_dir, make_fastq):
     # confirming list_r1(cfg) is non-empty (an empty list returns early with
     # a log message, never reaching the bounds check) — so this needs at
     # least one real staged R1 file to actually exercise the IndexError path.
-    rawdata = project_dir / "homo_sapiens" / "K562" / "RawData"
+    rawdata = project_dir / "homo_sapiens" / "RawData"
     rawdata.mkdir(parents=True)
     make_fastq(rawdata / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz")
 

@@ -92,7 +92,7 @@ The main configuration logic lives in [config.py](config.py).
 
 ## QC: sample-level vs. per-replicate
 
-`qc.py` generates two kinds of plots into each sample's `QC/` folder, and
+`qc.py` generates two kinds of plots into `Species/QC/<sample>/`, and
 `qc_report.html` presents them in two separate sections:
 
 - **Sample-Level QC** — built from the merged **combo** TagDir(s) (one per
@@ -114,6 +114,10 @@ The main configuration logic lives in [config.py](config.py).
   autocorrelation, and tag directory stats. Rendered as a compact grid (one
   small panel per replicate) rather than one crowded overlay, so it scales
   to samples with many replicates.
+
+It also writes compact cross-sample nucleotide-divergence summaries directly
+to `Species/QC/`: one 2x2 A/C/G/T heatmap for csRNA and one for sRNA, with
+PNG/SVG figures and the underlying per-nucleotide TSV matrices.
 
 ## Typical execution
 

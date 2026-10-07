@@ -1,47 +1,43 @@
-"""Step 3 — HOMER tag directories, split into two phases so leaf builds can
-run in parallel across a SLURM array:
+"""Step 3 — build one HOMER tag directory per biological replicate.
 
-  run_leaf_tagdirs(cfg, sample_index=...)  — ARRAY-CAPABLE, one leaf TagDir
-                                              per call, same --sample-index
-                                              indexing as trim/align (one
-                                              task per R1 file).
-  run_combo_tagdirs(cfg, group=...)        — ARRAY-CAPABLE via --group-index,
-                                              one Species/Sample per call
-                                              (group=(species, sample)), or
-                                              all of them at once when
-                                              group=None. Merges every
-                                              replicate's raw SAM files per
-                                              assay into a combo TagDir.
+FASTQ filenames are reduced to a replicate identity by ``parse_sample_name``.
+Every aligned SAM with the same ``(species, sample, leaf_name)`` is supplied
+to one individual ``makeTagDirectory`` call.  A second TagDir combines leaf
+identities that differ only by the final replicate marker (``_r1``, ``_r2``,
+...).  All preceding condition tokens are preserved; assay-wide uber combos
+are not built.
 
-Built under Species/Sample/TagDirs/ (all assays of a sample together):
-  • Species/Sample/TagDirs/<assay>-combo  — all replicates of that assay merged
-  • Species/Sample/TagDirs/<leaf_name>     — one tag dir per individual replicate
-
-Both are built from the same aligned SAM files, which live in the shared
-Species/Sample/Aligned/ (one folder per sample, not per assay or per
-replicate — see Config.aligned_dir). Since replicates (and assays) no longer
-get their own directory, a replicate's SAM is located by filename prefix
-rather than by listing an Aligned/ folder that belongs to just that one
-replicate.
-
-The combo build does NOT depend on the leaf TagDirs existing — it merges the
-raw SAM files directly — so run_combo_tagdirs only needs the align phase to
-be done, not run_leaf_tagdirs.
+The SLURM array remains indexed by R1 FASTQ for compatibility with trim and
+align. Only the first sorted R1 in a replicate group performs the build; the
+other lane tasks log a skip.
 """
 from __future__ import annotations
+
 from collections import defaultdict
-from .utils import run, log, done, iter_leaf_dirs, assay_of_leaf, list_r1, parse_sample_name
+
+from .utils import (
+    assay_of_leaf,
+    combo_leaf_of_leaf,
+    done,
+    iter_leaf_dirs,
+    list_r1,
+    log,
+    parse_sample_name,
+    run,
+)
 
 
-def _make_tagdir(cmd_input_sams: str, tagdir, assay: str, label: str, cfg) -> None:
+def _make_tagdir(input_sams: list, tagdir, assay: str, label: str, cfg) -> None:
     if done(tagdir):
         log.info("  skip (done): %s", tagdir)
         return
+
+    sams = " ".join(str(path) for path in sorted(set(input_sams)))
     if assay in ("csRNA", "sRNA"):
-        cmd = (f"makeTagDirectory {tagdir} {cmd_input_sams} "
+        cmd = (f"makeTagDirectory {tagdir} {sams} "
                f"-genome {cfg.genome} -checkGC -fragLength 150 -omitSN")
     elif assay == "totalRNA":
-        cmd = (f"makeTagDirectory {tagdir} {cmd_input_sams} "
+        cmd = (f"makeTagDirectory {tagdir} {sams} "
                f"-genome {cfg.genome} -checkGC -fragLength 150 -read2")
     else:
         log.warning("tagdir: unrecognized assay '%s' for %s", assay, tagdir)
@@ -50,95 +46,125 @@ def _make_tagdir(cmd_input_sams: str, tagdir, assay: str, label: str, cfg) -> No
 
 
 def _sam_for_r1(cfg, species, sample, r1):
-    """The aligned SAM this replicate's R1 produced, in the shared
-    Species/Sample/Aligned/ folder — same naming mapping.py already
-    uses (<prefix>.Aligned.out.sam where prefix = r1.name up to '_R1')."""
+    """Return the SAM produced by mapping.py for one R1 FASTQ."""
     prefix = r1.name.split("_R1")[0]
     return cfg.aligned_dir(species, sample) / f"{prefix}.Aligned.out.sam"
 
 
-def _leaf_tagdir_for_r1(cfg, r1) -> None:
-    species, sample, leaf_name = parse_sample_name(r1.name)
+def _replicate_groups(cfg):
+    """Map one parsed replicate identity to all R1 files sharing it."""
+    groups = defaultdict(list)
+    for species, sample, leaf_name, r1 in iter_leaf_dirs(cfg):
+        groups[(species, sample, leaf_name)].append(r1)
+    return {key: sorted(paths) for key, paths in groups.items()}
+
+
+def _combo_groups(cfg):
+    """Map a full prefix without ``_rN`` to all matching replicate R1s."""
+    groups = defaultdict(list)
+    for species, sample, leaf_name, r1 in iter_leaf_dirs(cfg):
+        combo_leaf = combo_leaf_of_leaf(leaf_name)
+        groups[(species, sample, combo_leaf)].append(r1)
+    return {key: sorted(paths) for key, paths in groups.items()}
+
+
+def _build_replicate_tagdir(cfg, key, r1s) -> None:
+    species, sample, leaf_name = key
     assay = assay_of_leaf(leaf_name)
     if not assay:
-        log.warning("tagdir: could not classify assay for %s", r1.name)
-        return
-
-    sam = _sam_for_r1(cfg, species, sample, r1)
-    if not sam.exists():
-        log.warning("tagdir: no aligned SAM yet for %s/%s/%s (run 'align' first)",
+        log.warning("tagdir: could not classify assay for %s/%s/%s",
                     species, sample, leaf_name)
         return
 
-    leaf_td = cfg.leaf_tagdir(species, sample, leaf_name)
-    _make_tagdir(str(sam), leaf_td, assay,
-                 f"tagdir {species}/{sample}/{leaf_name}", cfg)
+    expected = [_sam_for_r1(cfg, species, sample, r1) for r1 in r1s]
+    missing = [sam for sam in expected if not sam.exists()]
+    if missing:
+        raise RuntimeError(
+            "Cannot build TagDir because aligned SAM files are missing: "
+            + ", ".join(str(path) for path in missing)
+        )
+
+    _make_tagdir(
+        expected,
+        cfg.leaf_tagdir(species, sample, leaf_name),
+        assay,
+        f"tagdir {species}/{sample}/{leaf_name} ({len(expected)} file(s))",
+        cfg,
+    )
+
+
+def _build_combo_tagdir(cfg, key, r1s) -> None:
+    species, sample, combo_leaf = key
+    assay = assay_of_leaf(combo_leaf)
+    if not assay:
+        log.warning("tagdir combo: could not classify assay for %s/%s/%s",
+                    species, sample, combo_leaf)
+        return
+
+    expected = [_sam_for_r1(cfg, species, sample, r1) for r1 in r1s]
+    missing = [sam for sam in expected if not sam.exists()]
+    if missing:
+        raise RuntimeError(
+            "Cannot build combo TagDir because aligned SAM files are missing: "
+            + ", ".join(str(path) for path in missing)
+        )
+
+    _make_tagdir(
+        expected,
+        cfg.combo_tagdir(species, sample, combo_leaf),
+        assay,
+        f"tagdir combo {species}/{sample}/{combo_leaf} ({len(expected)} file(s))",
+        cfg,
+    )
 
 
 def run_leaf_tagdirs(cfg, sample_index=None) -> None:
-    """Build individual-replicate leaf TagDirs. Array-capable via
-    --sample-index, indexed the same way as trim/align (one R1 file = one
-    leaf run), so a tagdir_array.sbatch task maps 1:1 onto the align_array
-    task that produced its SAM file."""
+    """Build individual TagDirs plus full-prefix biological-replicate combos."""
     r1s = list_r1(cfg)
     if not r1s:
-        log.info("tagdir: no *_R1*.fastq[.gz] under nested RawData/ dirs in %s", cfg.project)
+        log.info("tagdir: no *_R1*.fastq[.gz] under nested RawData/ dirs in %s",
+                 cfg.project)
         return
+
+    groups = _replicate_groups(cfg)
+    combo_groups = _combo_groups(cfg)
     if sample_index is not None:
         if not (0 <= sample_index < len(r1s)):
             raise IndexError(f"sample_index {sample_index} out of range (0-{len(r1s)-1})")
-        r1s = [r1s[sample_index]]
-    for r1 in r1s:
-        _leaf_tagdir_for_r1(cfg, r1)
+        selected = r1s[sample_index]
+        key = parse_sample_name(selected.name)
+        members = groups[key]
+        if selected != members[0]:
+            log.info(
+                "tagdir: %s belongs to %s/%s/%s; canonical task is %s — skip",
+                selected.name, *key, members[0].name,
+            )
+            groups = {}
+        else:
+            groups = {key: members}
+
+        species, sample, leaf_name = key
+        combo_key = (species, sample, combo_leaf_of_leaf(leaf_name))
+        combo_members = combo_groups[combo_key]
+        if selected == combo_members[0]:
+            combo_groups = {combo_key: combo_members}
+        else:
+            combo_groups = {}
+
+    for key in sorted(groups):
+        _build_replicate_tagdir(cfg, key, groups[key])
+
+    for key in sorted(combo_groups):
+        _build_combo_tagdir(cfg, key, combo_groups[key])
 
 
 def run_combo_tagdirs(cfg, group=None) -> None:
-    """Merge every replicate's raw SAM files per assay into one combo TagDir
-    per Species/Sample. Array-capable via --group-index (group=(species,
-    sample) restricts to just that one Species/Sample), or runs once for
-    every Species/Sample when group=None. Only needs the align phase to be
-    done, not run_leaf_tagdirs — combo TagDirs are built straight from the
-    SAM files, not from the leaf TagDirs."""
-    combo_groups: dict[tuple[str, str, str], list] = defaultdict(list)
-    any_found = False
-
-    expected_leaves: dict[tuple[str, str, str], int] = defaultdict(int)
-
-    for species, sample, leaf_name, r1 in iter_leaf_dirs(cfg):
-        if group is not None and (species, sample) != group:
-            continue
-
-        assay = assay_of_leaf(leaf_name)
-        if not assay:
-            log.warning("tagdir-combo: could not classify assay for %s/%s/%s",
-                        species, sample, leaf_name)
-            continue
-        expected_leaves[(species, sample, assay)] += 1
-
-        sam = _sam_for_r1(cfg, species, sample, r1)
-        if not sam.exists():
-            log.warning("tagdir-combo: no aligned SAM for %s/%s/%s — this replicate "
-                        "will be MISSING from the combo TagDir (check align logs).",
-                        species, sample, leaf_name)
-            continue
-        any_found = True
-
-        combo_groups[(species, sample, assay)].append(sam)
-
-    for key, n_expected in expected_leaves.items():
-        n_found = len(set(combo_groups.get(key, [])))
-        if 0 < n_found < n_expected:
-            species, sample, assay = key
-            log.warning("tagdir-combo: %s/%s/%s-combo built from only %d of %d "
-                        "expected replicate(s) — one or more alignments failed/missing.",
-                        species, sample, assay, n_found, n_expected)
-
-    if not any_found:
-        log.info("tagdir-combo: no aligned SAM files found under %s", cfg.project)
-        return
-
-    for (species, sample, assay), sams in combo_groups.items():
-        sams_str = " ".join(str(s) for s in sorted(set(sams)))
-        combo_td = cfg.combo_tagdir(species, sample, assay)
-        _make_tagdir(sams_str, combo_td, assay,
-                     f"tagdir {species}/{sample}/{assay}-combo", cfg)
+    """Build condition-preserving replicate combos (compatibility entrypoint)."""
+    groups = _combo_groups(cfg)
+    if group is not None:
+        groups = {
+            key: members for key, members in groups.items()
+            if key[:2] == group
+        }
+    for key in sorted(groups):
+        _build_combo_tagdir(cfg, key, groups[key])

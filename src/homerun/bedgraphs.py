@@ -1,79 +1,220 @@
-"""Step 4 — Genome-browser bedGraphs (strand-specific), written into each
-sample's own flat Species/Sample/bedGraphs/ next to Species/Sample/TagDirs/.
+"""Step 4 — Genome-browser bedGraphs (strand-specific), written into
+Species/bedGraphs/ next to Species/TagDirs/.
 
 Generates a bedGraph folder next to every TagDir built by tagdirs.py:
-  • Species/Sample/TagDirs/<assay>-combo -> Species/Sample/bedGraphs/<assay>-combo/
-  • Species/Sample/TagDirs/<leaf_name>   -> Species/Sample/bedGraphs/<leaf_name>/
 
-Writes plain UNCOMPRESSED .bedGraph files with makeUCSCfile -o (stable names,
-no piping/gzip) so a re-run command keeps working.
+  • Species/TagDirs/<sample>_<assay>-combo -> Species/bedGraphs/<same-name>/
+  • Species/TagDirs/<sample>_<leaf_name>   -> Species/bedGraphs/<same-name>/
+
+Each output keeps the full TagDir identity in the filename, for example:
+
+  Testicle_D2_Post_BDAD_NO_RA_csRNA-combo.posStrand.bedGraph.gz
+  Testicle_D2_Post_BDAD_NO_RA_csRNA-combo.negStrand.bedGraph.gz
+
+makeUCSCfile adds gzip compression itself, so -o is given the uncompressed
+base filename while the completion check looks for the resulting .gz file.
 """
+
 from __future__ import annotations
-from .utils import run, log, done, assay_of_leaf
+
+from .utils import run, log, done, assay_of_leaf, list_samples
 
 
 def _assay_of_tagdir(name: str) -> str | None:
-    """Recover the assay from a TagDir's own name, since there's no longer a
-    per-assay parent folder to read it off of. TagDir names now carry a
-    <sample>_ prefix (e.g. 'IMR90_csRNA-combo', 'IMR90_csRNA_r1' — see
-    Config.leaf_tagdir/combo_tagdir), so a plain '-combo' strip alone would
-    leave the sample prefix stuck to the assay ('IMR90_csRNA' instead of
-    'csRNA'). Strip '-combo' first if present, then run the same
-    position-independent token search assay_of_leaf() already uses for
-    leaf names — it already correctly ignores non-assay tokens (species,
-    sample, condition), so it handles the sample-prefixed combo case too."""
+    """Recover the assay from a TagDir's own name.
+
+    TagDir names carry a <sample>_ prefix and may also contain condition
+    information, for example:
+
+        Testicle_D2_Post_BDAD_NO_RA_csRNA-combo
+        Testicle_D2_Post_BDAD_NO_RA_csRNA_r1
+
+    Strip '-combo' first when present, then use assay_of_leaf() to identify
+    csRNA, sRNA, or totalRNA from the remaining tokens.
+    """
     if name.endswith("-combo"):
-        name = name[: -len("-combo")]
+        name = name[:-len("-combo")]
+
     return assay_of_leaf(name)
 
 
 def run_bedgraphs(cfg, group=None) -> None:
-    """Array-capable via --group-index (group=(species, sample) restricts to
-    just that one Species/Sample's TagDirs — both its leaf and combo TagDirs,
-    since this needs whichever of each already exist), or all Species/Sample
-    at once when group=None."""
-    # Species/Sample/TagDirs/<leaf_or_combo>/ — every assay's TagDirs sit
-    # together directly under one sample now, so the assay is recovered from
-    # the TagDir's own name (via _assay_of_tagdir), not from a per-assay
-    # parent folder.
-    all_tagdirs = sorted(p for p in cfg.project.glob("*/*/TagDirs/*") if p.is_dir())
+    """Create strand-specific bedGraphs for every existing TagDir.
+
+    When group=(species, sample) is supplied, only TagDirs belonging to that
+    Species/Sample are processed. Otherwise all existing TagDirs are used.
+    """
+
+    # Species/TagDirs/<sample>_<leaf_or_combo>/
+    all_tagdirs = sorted(
+        p
+        for p in cfg.project.glob("*/TagDirs/*")
+        if p.is_dir()
+    )
+
     if not all_tagdirs:
-        log.info("bedGraph: no TagDirs/* under %s", cfg.project)
+        log.info(
+            "bedGraph: no TagDirs/* under %s",
+            cfg.project,
+        )
         return
 
     tagdirs = all_tagdirs
+
     if group is not None:
         sp, sa = group
-        # td = Species/Sample/TagDirs/<leaf_or_combo> so td.parent.parent is
-        # the SAMPLE dir, and td.parent.parent.parent is the species dir.
-        tagdirs = [td for td in all_tagdirs
-                   if td.parent.parent.name == sa
-                   and td.parent.parent.parent.name == sp]
+
+        tagdirs = [
+            td
+            for td in all_tagdirs
+            if td.parent.parent.name == sp
+            and td.name.startswith(f"{sa}_")
+        ]
+
         if not tagdirs:
-            log.info("bedGraph: %d TagDirs exist under %s, but none matched "
-                     "group %s/%s", len(all_tagdirs), cfg.project, sp, sa)
+            log.info(
+                "bedGraph: %d TagDirs exist under %s, but none matched "
+                "group %s/%s",
+                len(all_tagdirs),
+                cfg.project,
+                sp,
+                sa,
+            )
             return
 
-    skip = f"-skipChr {cfg.skip_chr} " if cfg.skip_chr else ""
+    skip = (
+        f"-skipChr {cfg.skip_chr} "
+        if cfg.skip_chr
+        else ""
+    )
+
     for td in tagdirs:
-        sample_dir = td.parent.parent                    # Species/Sample/
-        sample = sample_dir.name
-        species = sample_dir.parent.name
-        assay = _assay_of_tagdir(td.name)
-        if not assay:
-            log.warning("bedGraph: could not classify assay for TagDir %s — skipping.", td)
+        species_dir = td.parent.parent
+        species = species_dir.name
+
+        candidates = [
+            sample
+            for sp, sample in list_samples(cfg)
+            if sp == species
+            and td.name.startswith(f"{sample}_")
+        ]
+
+        if not candidates:
+            log.warning(
+                "bedGraph: could not identify sample for TagDir %s — skipping.",
+                td,
+            )
             continue
-        species_sample_run = f"{species}/{sample}/{td.name}"
 
-        bedgraph_dir = sample_dir / "bedGraphs" / td.name
-        bedgraph_dir.mkdir(parents=True, exist_ok=True)
-        style = "rnaseq" if assay == "totalRNA" else "tss"
-        pos = bedgraph_dir / "posStrand.bedGraph"
-        neg = bedgraph_dir / "negStrand.bedGraph"
+        # Prefer the longest matching sample name in case one sample name is
+        # a prefix of another.
+        sample = max(
+            candidates,
+            key=len,
+        )
 
-        if not done(pos):
-            run(f"makeUCSCfile {td} -style {style} -strand + {skip}-o {pos}",
-                label=f"bedGraph + {species_sample_run}")
-        if not done(neg):
-            run(f"makeUCSCfile {td} -style {style} -strand - -neg {skip}-o {neg}",
-                label=f"bedGraph - {species_sample_run}")
+        assay = _assay_of_tagdir(td.name)
+
+        if not assay:
+            log.warning(
+                "bedGraph: could not classify assay for TagDir %s — skipping.",
+                td,
+            )
+            continue
+
+        species_sample_run = (
+            f"{species}/{sample}/{td.name}"
+        )
+
+        bedgraph_dir = (
+            species_dir
+            / "bedGraphs"
+            / td.name
+        )
+
+        bedgraph_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        style = (
+            "rnaseq"
+            if assay == "totalRNA"
+            else "tss"
+        )
+
+        # Important:
+        # makeUCSCfile appends .gz itself.
+        #
+        # Give -o the .bedGraph base path:
+        #
+        #   ...posStrand.bedGraph
+        #
+        # HOMER then creates:
+        #
+        #   ...posStrand.bedGraph.gz
+        #
+        # This avoids the old:
+        #
+        #   negStrand.gz.gz
+        #
+        pos_base = (
+            bedgraph_dir
+            / f"{td.name}.posStrand.bedGraph"
+        )
+
+        neg_base = (
+            bedgraph_dir
+            / f"{td.name}.negStrand.bedGraph"
+        )
+
+        pos_output = (
+            bedgraph_dir
+            / f"{td.name}.posStrand.bedGraph.gz"
+        )
+
+        neg_output = (
+            bedgraph_dir
+            / f"{td.name}.negStrand.bedGraph.gz"
+        )
+
+        if done(pos_output):
+            log.info(
+                "  skip (done): %s",
+                pos_output,
+            )
+        else:
+            run(
+                (
+                    f"makeUCSCfile {td} "
+                    f"-style {style} "
+                    f"-strand + "
+                    f"{skip}"
+                    f"-o {pos_base}"
+                ),
+                label=(
+                    f"bedGraph + "
+                    f"{species_sample_run}"
+                ),
+            )
+
+        if done(neg_output):
+            log.info(
+                "  skip (done): %s",
+                neg_output,
+            )
+        else:
+            run(
+                (
+                    f"makeUCSCfile {td} "
+                    f"-style {style} "
+                    f"-strand - "
+                    f"-neg "
+                    f"{skip}"
+                    f"-o {neg_base}"
+                ),
+                label=(
+                    f"bedGraph - "
+                    f"{species_sample_run}"
+                ),
+            )

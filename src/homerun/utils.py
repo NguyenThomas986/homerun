@@ -232,11 +232,10 @@ def seq_type(name: str) -> str | None:
 
 
 def leaf_dir(r1: Path) -> Path:
-    """Given an R1 fastq Path at .../Species/Sample/RawData/<file>, return
-    the Sample directory itself (.../Species/Sample/).
+    """Given an R1 FASTQ at .../Species/RawData/<file>, return Species/.
 
     Despite the name (kept for compatibility with existing call sites),
-    this returns the SAMPLE directory, not a per-replicate or per-assay one:
+    this returns the SPECIES directory, not a per-replicate or sample one:
     RawData/Trimmed/Aligned are shared across every replicate of EVERY assay
     within a sample (only TagDirs/bedGraphs/RITRIE still nest one folder per
     replicate — see Config.leaf_tagdir/leaf_bedgraph/leaf_ritrie).
@@ -249,11 +248,11 @@ def leaf_dir(r1: Path) -> Path:
 
 
 def list_r1(cfg):
-    """Sorted list of R1 FASTQs under every Species/Sample/RawData/ —
+    """Sorted list of R1 FASTQs under every Species/RawData/ —
     the unit of array parallelism. The array task index maps 1:1 to this
     (deterministic) ordering."""
     return sorted(
-        p for p in cfg.project.glob("*/*/RawData/*_R1*")
+        p for p in cfg.project.glob("*/RawData/*_R1*")
         if p.name.endswith(".fastq") or p.name.endswith(".fastq.gz")
     )
 
@@ -282,9 +281,20 @@ def replicate_of_leaf(leaf_name: str) -> str | None:
     return m.group(1) if m else None
 
 
+def combo_leaf_of_leaf(leaf_name: str) -> str:
+    """Remove the final replicate marker while preserving all prior tokens.
+
+    For example, ``D2_Post_BDAD_NO_RA_csRNA_r3`` becomes
+    ``D2_Post_BDAD_NO_RA_csRNA``.  This is the identity used for a
+    biological-replicate combo; it intentionally does not collapse distinct
+    conditions into one assay-wide "uber" combo.
+    """
+    return re.sub(r"_r(ep)?\d+$", "", leaf_name)
+
+
 def iter_leaf_dirs(cfg):
     """Yield (species, sample, leaf_name, r1_path) for every R1 FASTQ under
-    every Species/Sample/RawData/ — the same set list_r1() draws from, but
+    every Species/RawData/ — the same set list_r1() draws from, but
     with each replicate's identity attached.
 
     Individual replicates no longer get their own directory, nor even a

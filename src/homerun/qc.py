@@ -1,12 +1,12 @@
 """QC plots from -combo tag directories, one set per Species/Sample.
 
-Each sample gets its own QC/ dir (Species/Sample/QC/) combining csRNA, sRNA,
-and totalRNA combo TagDirs and that sample's TSS output — instead of one
-flat project-level QC/ mixing every sample together.
+Detailed sample plots live in Species/QC/<sample>/. Cross-sample nucleotide
+divergence heatmaps live directly in Species/QC/.
 """
 from __future__ import annotations
 
 import math
+import re
 import matplotlib
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt  # noqa: E402
@@ -16,6 +16,7 @@ import seaborn as sns                  # noqa: E402
 
 from .utils import log, iter_samples, iter_leaf_dirs, assay_of_leaf  # noqa: E402
 from .stability import _read_homer_tss, _location, DISTAL_C, PROX_C  # noqa: E402
+from .qc_excel import write_qc_workbook  # noqa: E402
 
 _ASSAYS = ("csRNA", "sRNA", "totalRNA")
 _ASSAY_COLORS = {"csRNA": "#2c7fb8", "sRNA": "#de7c00", "totalRNA": "#636363"}
@@ -49,11 +50,40 @@ def _all_combos(cfg, species, sample):
     return [d for a in _ASSAYS if (d := _combo(cfg, species, sample, a))]
 
 
+def _condition_combo_tagdirs(cfg, species, sample, assay):
+    """Return all condition-preserving combo TagDirs for one assay/sample."""
+    root = cfg.species_dir(species) / "TagDirs"
+    prefix = f"{sample}_"
+    found = []
+
+    for tagdir in sorted(root.glob(f"{prefix}*-combo")):
+        if not tagdir.is_dir():
+            continue
+
+        combo_leaf = tagdir.name[len(prefix):-len("-combo")]
+
+        if assay_of_leaf(combo_leaf) != assay:
+            continue
+
+        found.append((combo_leaf, tagdir))
+
+    return found
+
+
+def _sample_tss_files(cfg, species, sample, suffix):
+    """Files in shared Species/TSS that belong to exactly one sample."""
+    return sorted(
+        path for path in cfg.sample_tss(species, sample).glob(f"*{suffix}")
+        if (path.name.startswith(f"{sample}.") or
+            path.name.startswith(f"{sample}_"))
+    )
+
+
 def _label(d) -> str:
     """Readable name for a TagDir, e.g. 'IMR90_csRNA-combo' or
     'IMR90_csRNA_r1' (see Config.leaf_tagdir/combo_tagdir — the sample name
     is prefixed onto the directory's own name). The tag directory itself is
-    named that (Species/Sample/TagDirs/<name>), not nested one level further
+    named that (Species/TagDirs/<name>), not nested one level further
     under a generic 'TagDir' folder."""
     return d.name
 
@@ -87,8 +117,9 @@ def _leaf_tagdirs_for_sample(cfg, species, sample):
 # ── Existing plots ────────────────────────────────────────────────────────────
 
 def qc_read_length(cfg, species, sample, qc_dir) -> None:
-    combos = [d for d in _all_combos(cfg, species, sample)
-              if (d / "tagLengthDistribution.txt").exists()]
+    combos = [d for assay in ("csRNA", "sRNA")
+              for d in [_combo(cfg, species, sample, assay)]
+              if d and (d / "tagLengthDistribution.txt").exists()]
     if not combos:
         log.info("QC read-length: no tagLengthDistribution.txt yet."); return
     plt.figure(figsize=(12, 6))
@@ -102,7 +133,7 @@ def qc_read_length(cfg, species, sample, qc_dir) -> None:
 
 
 def qc_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
-    have = {a: d for a in _ASSAYS
+    have = {a: d for a in ("csRNA", "sRNA")
             if (d := _combo(cfg, species, sample, a)) and (d / "tagFreqUniq.txt").exists()}
     if not have:
         log.info("QC nt-freq: no tagFreqUniq.txt yet."); return
@@ -118,7 +149,7 @@ def qc_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
 
 
 def qc_autocorrelation(cfg, species, sample, qc_dir) -> None:
-    have = {a: d for a in _ASSAYS
+    have = {a: d for a in ("csRNA", "sRNA")
             if (d := _combo(cfg, species, sample, a)) and (d / "tagAutocorrelation.txt").exists()}
     if not have:
         log.info("QC autocorrelation: no tagAutocorrelation.txt yet."); return
@@ -169,52 +200,70 @@ def _median_tags_bar_merged(cfg, species, sample, qc_dir) -> None:
 
 
 def qc_threshold_optimization(cfg, species, sample, qc_dir) -> None:
-    """Threshold optimization plot from prefix.inputDistribution.txt files."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.inputDistribution.txt"))
+    """Threshold optimization plots in a bounded grid.
+
+    The old implementation stacked one 5-inch-tall subplot per TSS file, which
+    could create figures hundreds of inches tall for large experiments and
+    trigger FreeType/Matplotlib ``raster overflow`` errors.
+    """
+    files = _sample_tss_files(cfg, species, sample, ".inputDistribution.txt")
     if not files:
-        log.info("QC threshold: no *.inputDistribution.txt for %s/%s", species, sample); return
+        log.info("QC threshold: no *.inputDistribution.txt for %s/%s", species, sample)
+        return
 
     n = len(files)
-    fig, axes = plt.subplots(n, 1, figsize=(8, 5 * n), squeeze=False)
+    log.info("QC threshold: rendering %d TSS file(s)", n)
+    fig, axes = _replicate_grid(n)
 
-    for ax, f in zip(axes[:, 0], files):
+    for i, (ax, f) in enumerate(zip(axes.flat, files)):
         df = pd.read_csv(f, sep="\t", header=0)
         df.columns = [c.strip() for c in df.columns]
 
         x_col, tss_col, exon_col, diff_col = (
             "csRNA/input log2 ratio", "TSS CDF", "Exon CDF", "Difference")
 
-        ax.plot(df[x_col], df[tss_col],  color="steelblue",  lw=2, label="TSS CDF")
-        ax.plot(df[x_col], df[exon_col], color="darkorange", lw=2, label="Exon CDF")
-        ax.plot(df[x_col], df[diff_col], color="gray", lw=1.5, ls="--", label="Difference")
+        ax.plot(df[x_col], df[tss_col], color="steelblue", lw=1.4, label="TSS CDF")
+        ax.plot(df[x_col], df[exon_col], color="darkorange", lw=1.4, label="Exon CDF")
+        ax.plot(df[x_col], df[diff_col], color="gray", lw=1.0, ls="--", label="Difference")
 
         idx = df[diff_col].idxmax()
         thresh = df.loc[idx, x_col]
-        ax.axvline(thresh, color="black", ls=":", lw=1)
-        ax.text(thresh + 0.1, 0.05, f"threshold = {thresh:.2f}", fontsize=8)
+        ax.axvline(thresh, color="black", ls=":", lw=0.9)
+        ax.text(0.98, 0.05, f"thr={thresh:.2f}", transform=ax.transAxes,
+                ha="right", va="bottom", fontsize=6)
 
         s = f.name.replace(".inputDistribution.txt", "")
-        ax.set_title(f"Threshold Optimization — {s}")
-        ax.set_xlabel("Log2 Ratio of csRNAseq/control")
-        ax.set_ylabel("Cumulative Distribution")
+        ax.set_title(s, fontsize=8)
         ax.set_ylim(0, 1.05)
-        ax.legend(fontsize=9)
+        ax.tick_params(labelsize=7)
+        if i == 0:
+            ax.legend(fontsize=6, loc="best")
 
+    fig.supxlabel("Log2 Ratio of csRNAseq/control")
+    fig.supylabel("Cumulative Distribution")
+    fig.suptitle(f"Threshold Optimization — {n} TSS output(s)")
     plt.tight_layout()
-    plt.savefig(qc_dir / "threshold_optimization.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: threshold_optimization.png")
+    plt.savefig(qc_dir / "threshold_optimization.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("QC: threshold_optimization.png (%d TSS output(s), grid)", n)
 
 
 def qc_tss_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
-    """Nucleotide frequency at primary TSS from *.freq.tsv files."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.freq.tsv"))
+    """Nucleotide frequency at primary TSS from *.freq.tsv files.
+
+    Uses the same bounded grid as the per-replicate plots so large experiments
+    do not create a single ultra-wide image.
+    """
+    files = _sample_tss_files(cfg, species, sample, ".freq.tsv")
     if not files:
-        log.info("QC TSS nt-freq: no *.freq.tsv for %s/%s", species, sample); return
+        log.info("QC TSS nt-freq: no *.freq.tsv for %s/%s", species, sample)
+        return
 
     n = len(files)
-    fig, axes = plt.subplots(1, n, figsize=(7 * n, 5), squeeze=False)
+    log.info("QC TSS nt-freq: rendering %d file(s)", n)
+    fig, axes = _replicate_grid(n)
 
-    for ax, f in zip(axes[0], files):
+    for i, (ax, f) in enumerate(zip(axes.flat, files)):
         df = pd.read_csv(f, sep="\t", index_col=0)
         nt_cols = {"A frequency": ("A", "steelblue"),
                    "C frequency": ("C", "darkorange"),
@@ -222,29 +271,35 @@ def qc_tss_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
                    "T frequency": ("T", "gold")}
         for col, (label, color) in nt_cols.items():
             if col in df.columns:
-                ax.plot(df.index, df[col], label=label, color=color, lw=1.5)
+                ax.plot(df.index, df[col], label=label, color=color, lw=1.0)
 
-        s = f.name.split(".tss.txt")[0]
-        ax.set_title(s)
-        ax.set_xlabel("Distance from TSS")
-        ax.set_ylabel("Nucleotide Frequency")
+        s = f.name.replace(".freq.tsv", "")
+        ax.set_title(s, fontsize=8)
         ax.set_xlim(-100, 100)
-        ax.legend(fontsize=9)
+        ax.tick_params(labelsize=7)
+        if i == 0:
+            ax.legend(fontsize=6, ncol=4, loc="best")
 
-    plt.suptitle("Nucleotide Frequencies at Primary TSS", y=1.0, fontsize=12)
+    fig.supxlabel("Distance from TSS")
+    fig.supylabel("Nucleotide Frequency")
+    fig.suptitle(f"Nucleotide Frequencies at Primary TSS — {n} output(s)")
     plt.tight_layout()
-    plt.subplots_adjust(top=0.88)
-    plt.savefig(qc_dir / "tss_nucleotide_frequency.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: tss_nucleotide_frequency.png")
+    plt.savefig(qc_dir / "tss_nucleotide_frequency.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("QC: tss_nucleotide_frequency.png (%d output(s), grid)", n)
 
 
 def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
     """Parse findcsRNATSS stats files into a summary table PNG."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.stats.txt"))
+    files = _sample_tss_files(cfg, species, sample, ".stats.txt")
     if not files:
         log.info("QC TSR summary: no *.stats.txt for %s/%s", species, sample); return
 
-    has_rna = cfg.combo_tagdir(species, sample, "totalRNA").is_dir()
+    has_rna = any(
+        sp == species and sa == sample and assay_of_leaf(leaf_name) == "totalRNA"
+        and cfg.leaf_tagdir(species, sample, leaf_name).is_dir()
+        for sp, sa, leaf_name, _r1 in iter_leaf_dirs(cfg)
+    )
 
     rows = []
     for f in files:
@@ -280,24 +335,30 @@ def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
             })
         rows.append(row)
 
-    df = pd.DataFrame(rows).set_index("Sample").T
-    df = df[~(df == "NA").all(axis=1)]
+    # Keep one TSS output per row.  Transposing this table makes the figure grow
+    # horizontally with every condition/replicate and becomes unrenderable for
+    # large experiments.
+    df = pd.DataFrame(rows).set_index("Sample")
+    df = df.loc[:, ~(df == "NA").all(axis=0)]
 
-    fig, ax = plt.subplots(figsize=(max(6, 3 * len(rows)), len(df) * 0.5 + 1))
+    fig, ax = plt.subplots(figsize=(max(10, 1.25 * len(df.columns)),
+                                    max(4, 0.34 * len(df) + 1.8)))
     ax.axis("off")
     tbl = ax.table(cellText=df.values, rowLabels=df.index,
                    colLabels=df.columns, cellLoc="center", loc="center")
-    tbl.auto_set_font_size(False); tbl.set_fontsize(9)
+    tbl.auto_set_font_size(False)
+    tbl.set_fontsize(7 if len(df) > 30 else 8)
     tbl.auto_set_column_width(col=list(range(len(df.columns) + 1)))
     plt.title("TSR Summary", fontsize=11, pad=10)
     plt.tight_layout()
-    plt.savefig(qc_dir / "tsr_summary.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: tsr_summary.png")
+    plt.savefig(qc_dir / "tsr_summary.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    log.info("QC: tsr_summary.png (%d TSS output(s))", len(df))
 
 
 def qc_tsr_annotation(cfg, species, sample, qc_dir) -> None:
     """Bar plot of TSR annotation categories from *.tss.txt files."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.tss.txt"))
+    files = _sample_tss_files(cfg, species, sample, ".tss.txt")
     if not files:
         log.info("QC TSR annotation: no *.tss.txt for %s/%s", species, sample); return
 
@@ -317,15 +378,20 @@ def qc_tsr_annotation(cfg, species, sample, qc_dir) -> None:
     mdf = mdf.loc[:, (mdf > 0).any(axis=0)]
     if mdf.empty:
         log.info("QC TSR annotation: no annotation counts found — skipping"); return
-    ax = mdf.plot(kind="bar", stacked=True, figsize=(max(6, 2 * len(rows)), 5),
+    # Horizontal bars let the figure grow vertically with the number of TSS
+    # outputs instead of becoming hundreds of inches wide.
+    ax = mdf.plot(kind="barh", stacked=True,
+                  figsize=(11, max(5, 0.32 * len(rows) + 2)),
                   colormap="tab10")
-    ax.set_ylabel("Number of TSR clusters")
+    ax.set_xlabel("Number of TSR clusters")
+    ax.set_ylabel("TSS output")
     ax.set_title("TSR Annotation Categories")
-    ax.set_xticklabels(ax.get_xticklabels(), rotation=30, ha="right")
+    ax.tick_params(axis="y", labelsize=7)
     plt.legend(bbox_to_anchor=(1.01, 1), loc="upper left", fontsize=8)
     plt.tight_layout()
-    plt.savefig(qc_dir / "tsr_annotation.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: tsr_annotation.png")
+    plt.savefig(qc_dir / "tsr_annotation.png", dpi=150, bbox_inches="tight")
+    plt.close()
+    log.info("QC: tsr_annotation.png (%d TSS output(s))", len(rows))
 
 
 def _tagdir_stats_rows(tagdirs_with_labels) -> list[dict]:
@@ -739,8 +805,8 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
                 trim_rows.append({
                     "Replicate": leaf_name, "Tool": "homerTools",
                     "Input Reads": total,
-                    "% Retained": round(100 - dimer_pct, 2),
-                    "% Removed": round(dimer_pct, 2),
+                    "% Retained Reads": round(100 - dimer_pct, 2),
+                    "% Adapters": round(dimer_pct, 2),
                 })
 
         # ── alignment ──
@@ -772,7 +838,7 @@ def qc_trim_align_summary(cfg, species, sample, qc_dir) -> None:
 
     if trim_rows:
         _render_log_table(pd.DataFrame(trim_rows).set_index("Replicate"),
-                          "Trim Summary", qc_dir / "trim_stats_summary.png")
+                          "Adapter Trimming", qc_dir / "trim_stats_summary.png")
         log.info("QC: trim_stats_summary.png (%d replicate(s))", len(trim_rows))
     else:
         log.info("QC trim summary: no trim logs found for %s/%s", species, sample)
@@ -796,7 +862,7 @@ def qc_distal_proximal_pie(cfg, species, sample, qc_dir) -> None:
     stability.py's combined stable/unstable+location pie, which only ever
     falls back to showing location when there's no total RNA, so a csRNA/
     sRNA-only sample (no total RNA) still gets this chart."""
-    files = sorted(cfg.sample_tss(species, sample).glob("*.tss.txt"))
+    files = _sample_tss_files(cfg, species, sample, ".tss.txt")
     if not files:
         log.info("QC distal/proximal: no *.tss.txt for %s/%s", species, sample)
         return
@@ -829,6 +895,210 @@ def qc_distal_proximal_pie(cfg, species, sample, qc_dir) -> None:
     plt.savefig(qc_dir / "distal_proximal_pie.png", dpi=150, bbox_inches="tight")
     plt.close()
     log.info("QC: distal_proximal_pie.png (%s/%s)", species, sample)
+
+
+# ── QC raw-log cleanup ───────────────────────────────────────────────────────
+
+def _remove_qc_raw_log_copies(qc_dir) -> None:
+    """Remove raw trimming/alignment .txt copies from QC/ after summaries are rendered.
+
+    The PNG summary tables are retained. This only removes the copied raw
+    homerTools .lengths.txt and STAR/hisat2 mapping-stat text files.
+    """
+    patterns = (
+        "*.lengths.txt",
+        "*_mappingstats.txt",
+        "*.Log.final.out.txt",
+    )
+    removed = 0
+    for pattern in patterns:
+        for path in qc_dir.glob(pattern):
+            try:
+                path.unlink()
+                removed += 1
+            except Exception as exc:
+                log.warning("QC cleanup: could not remove %s: %s", path, exc)
+    if removed:
+        log.info("QC cleanup: removed %d raw trim/alignment .txt file(s)", removed)
+
+
+
+def _natural_condition_key(label: str):
+    """Sort D<number> conditions numerically, with a natural fallback.
+
+    Examples with D tokens:
+      D0, D1, D2, ..., D10, D21
+
+    Labels without a D<number> token are still sorted naturally, so:
+      sample2 comes before sample10.
+    """
+    label_str = str(label)
+
+    day_match = re.search(r"(?:^|_)D(\d+)(?:_|$)", label_str)
+
+    fallback = tuple(
+        int(part) if part.isdigit() else part.lower()
+        for part in re.split(r"(\d+)", label_str)
+    )
+
+    if day_match:
+        return (0, int(day_match.group(1)), fallback)
+
+    return (1, fallback)
+
+
+def qc_nucleotide_divergence_heatmaps(cfg, samples=None) -> None:
+    """Create divergent A/C/G/T heatmaps from condition-preserving combo TagDirs."""
+    samples = list(samples if samples is not None else iter_samples(cfg))
+    nucleotides = ("A", "C", "G", "T")
+
+    for species in sorted({sp for sp, _sample in samples}):
+        species_samples = sorted(
+            sample for sp, sample in samples if sp == species
+        )
+        qc_root = cfg.species_qc(species)
+
+        for assay in ("csRNA", "sRNA"):
+            matrices: dict[str, dict[str, pd.Series]] = {
+                nt: {} for nt in nucleotides
+            }
+            combo_count = 0
+
+            for sample in species_samples:
+                for combo_leaf, tagdir in _condition_combo_tagdirs(
+                    cfg, species, sample, assay
+                ):
+                    freq_file = tagdir / "tagFreqUniq.txt"
+                    if not freq_file.is_file():
+                        continue
+
+                    try:
+                        df = pd.read_csv(freq_file, sep="\t")
+                    except Exception as exc:
+                        log.warning(
+                            "QC nucleotide heatmap: could not read %s: %s",
+                            freq_file,
+                            exc,
+                        )
+                        continue
+
+                    if "Offset" not in df.columns:
+                        log.warning(
+                            "QC nucleotide heatmap: no Offset column in %s",
+                            freq_file,
+                        )
+                        continue
+
+                    df = df.set_index("Offset")
+                    row_label = f"{sample}_{combo_leaf}"
+                    added = False
+
+                    for nt in nucleotides:
+                        if nt not in df.columns:
+                            continue
+                        matrices[nt][row_label] = pd.to_numeric(
+                            df[nt], errors="coerce"
+                        )
+                        added = True
+
+                    if added:
+                        combo_count += 1
+
+            if not any(matrices.values()):
+                log.info(
+                    "QC nucleotide heatmap: no %s combo tagFreqUniq.txt files for %s",
+                    assay,
+                    species,
+                )
+                continue
+
+            log.info(
+                "QC nucleotide heatmap: rendering %s heatmaps from %d combo(s) for %s",
+                assay,
+                combo_count,
+                species,
+            )
+            qc_root.mkdir(parents=True, exist_ok=True)
+
+            for nt in nucleotides:
+                if not matrices[nt]:
+                    log.info(
+                        "QC nucleotide heatmap: no %s data for %s %s",
+                        nt,
+                        species,
+                        assay,
+                    )
+                    continue
+
+                plot_frame_transposed = pd.DataFrame(matrices[nt]).T
+
+                # Natural condition order:
+                # D0, D1, D2, ..., D10, D21.
+                # Labels without D<number> still sort naturally.
+                plot_frame_transposed = plot_frame_transposed.loc[
+                    sorted(
+                        plot_frame_transposed.index,
+                        key=_natural_condition_key,
+                    )
+                ]
+
+                plot_frame_transposed = plot_frame_transposed.dropna(
+                    axis=1, how="all"
+                )
+
+                if plot_frame_transposed.empty:
+                    log.info(
+                        "QC nucleotide heatmap: empty %s matrix for %s %s",
+                        nt,
+                        species,
+                        assay,
+                    )
+                    continue
+
+                avg_content = np.nanmean(
+                    plot_frame_transposed.to_numpy(dtype=float)
+                )
+                log.info(
+                    "Calculated Global Average '%s' Content for %s %s: %.4f",
+                    nt,
+                    species,
+                    assay,
+                    avg_content,
+                )
+
+                plot_frame_divergent = plot_frame_transposed - avg_content
+                nrows = len(plot_frame_divergent.index)
+                fig_height = max(6, min(24, 0.45 * nrows + 3))
+                fig, ax = plt.subplots(figsize=(18, fig_height))
+
+                sns.heatmap(
+                    data=plot_frame_divergent,
+                    cmap="vlag",
+                    center=0,
+                    vmin=-0.1,
+                    vmax=0.1,
+                    ax=ax,
+                )
+                ax.set_title(f"{assay} - {nt} Frequency Relative to TSS")
+                ax.set_xlabel("Offset")
+                ax.set_ylabel("Condition combo")
+                ax.tick_params(axis="y", labelsize=8)
+                fig.tight_layout()
+
+                png_path = qc_root / f"{assay}_{nt}_DivergentPlot.png"
+                svg_path = qc_root / f"{assay}_{nt}_DivergentPlot.svg"
+                fig.savefig(png_path, dpi=150, bbox_inches="tight")
+                fig.savefig(svg_path, bbox_inches="tight")
+                plt.close(fig)
+
+                data_path = qc_root / f"{assay}_{nt}_Divergent_Data.tsv"
+                plot_frame_divergent.to_csv(data_path, sep="\t")
+
+                log.info(
+                    "QC: %s (%d combo(s))",
+                    png_path,
+                    nrows,
+                )
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
@@ -865,6 +1135,10 @@ def _run_qc_one(cfg, species, sample) -> None:
     qc_autocorrelation_per_replicate(cfg, species, sample, qc_dir)
     qc_tagdir_stats_per_replicate(cfg, species, sample, qc_dir)
 
+    # Keep the summary PNGs, but don't leave copied raw trim/alignment logs
+    # in the QC directory.
+    _remove_qc_raw_log_copies(qc_dir)
+
 
 def run_qc(cfg) -> None:
     samples = list(iter_samples(cfg))
@@ -874,3 +1148,5 @@ def run_qc(cfg) -> None:
     for species, sample in samples:
         log.info("QC: %s/%s", species, sample)
         _run_qc_one(cfg, species, sample)
+    qc_nucleotide_divergence_heatmaps(cfg, samples)
+    write_qc_workbook(cfg)
