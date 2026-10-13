@@ -117,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p.add_argument(
-        "--metadata",
+        "--csv",
         default=None,
         help=(
             "CSV/XLSX FASTQ metadata manifest (overrides CSRNA_METADATA; "
@@ -126,7 +126,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     p.add_argument(
-        "--init-metadata",
+        "--init-csv",
         action="store_true",
         help=(
             "Create <project>/samples.csv with discovered FASTQ filenames "
