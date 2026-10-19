@@ -1,7 +1,7 @@
 # Input Files
 
-HOMERun supports two additive input modes. If `--metadata` is omitted, the
-existing filename parser is used exactly as before. If `--metadata` is given,
+HOMERun supports two additive input modes. If `--csv` is omitted, the
+existing filename parser is used exactly as before. If `--csv` is given,
 the CSV/XLSX values define the sample identity and filenames are used only to
 match files and distinguish `R1` from `R2`.
 
@@ -41,12 +41,12 @@ example, `K562_D2_csRNA_r1_R1.fastq.gz` would not identify
 
 ## Mode 2: CSV or Excel metadata
 
-Pass a `.csv` or `.xlsx` file with `--metadata`:
+Pass a `.csv` or `.xlsx` file with `--csv`:
 
 ```bash
 homerun \
   --project /data/my-project \
-  --metadata /data/my-project/samples.xlsx \
+  --csv /data/my-project/samples.xlsx \
   --genome-index /indexes/hg38 \
   --genome hg38
 ```
@@ -55,7 +55,7 @@ To create a starter CSV automatically, place the FASTQs in the project root
 or existing `Species/RawData/` directories and run:
 
 ```bash
-homerun --project /data/my-project --init-metadata
+homerun --project /data/my-project --init-csv
 ```
 
 This creates `/data/my-project/samples.csv`, fills its `FASTQ` column with the
@@ -63,7 +63,7 @@ exact discovered filenames, and leaves the biological fields blank for the
 user to complete. It never guesses biological metadata and refuses to
 overwrite an existing `samples.csv`.
 
-`CSRNA_METADATA` provides the same setting. An explicit `--metadata` value
+`CSRNA_METADATA` provides the same setting. An explicit `--csv` value
 overrides the environment variable. The default is unset.
 
 When using the SLURM controller, pass the Python option after its `--`
@@ -76,7 +76,7 @@ submit_array.sh \
   --conda-env homerun \
   --genome-index /indexes/hg38 \
   --genome hg38 \
-  -- --metadata /data/my-project/samples.xlsx
+  -- --csv /data/my-project/samples.xlsx
 ```
 
 Required columns are `FASTQ`, `Species`, `Assay`, and `Replicate`. `Sample`
@@ -155,5 +155,5 @@ Their download accessions do not need to match.
     In filename mode, a filename without a recognized assay or lowercase
     replicate marker is rejected. In metadata mode, the manifest is validated
     strictly before staging. Run `homerun --project PROJECT --stage-raw`
-    (adding `--metadata PATH` when applicable) and inspect the resulting
+    (adding `--csv PATH` when applicable) and inspect the resulting
     `Species/RawData/` directories.

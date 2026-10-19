@@ -43,13 +43,13 @@ def test_no_args_parses_with_defaults():
     assert args.init_metadata is False
 
 
-def test_metadata_option_is_accepted():
-    args = build_parser().parse_args(["--metadata", "samples.xlsx"])
+def test_csv_option_is_accepted():
+    args = build_parser().parse_args(["--csv", "samples.xlsx"])
     assert args.metadata == "samples.xlsx"
 
 
-def test_init_metadata_option_is_accepted():
-    assert build_parser().parse_args(["--init-metadata"]).init_metadata is True
+def test_init_csv_option_is_accepted():
+    assert build_parser().parse_args(["--init-csv"]).init_metadata is True
 
 
 def test_steps_accepts_valid_step_names():
@@ -198,7 +198,7 @@ def test_init_metadata_creates_csv_with_discovered_fastqs(project_dir, make_fast
     rawdata.mkdir(parents=True)
     make_fastq(rawdata / staged)
 
-    rc = main(["--project", str(project_dir), "--init-metadata"])
+    rc = main(["--project", str(project_dir), "--init-csv"])
 
     assert rc == 0
     output = project_dir / "samples.csv"
@@ -216,7 +216,7 @@ def test_init_metadata_refuses_to_overwrite(project_dir, capsys):
     output = project_dir / "samples.csv"
     output.write_text("keep me")
 
-    rc = main(["--project", str(project_dir), "--init-metadata"])
+    rc = main(["--project", str(project_dir), "--init-csv"])
 
     assert rc == 1
     assert output.read_text() == "keep me"

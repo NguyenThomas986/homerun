@@ -28,7 +28,7 @@ control SLURM and are not Python pipeline settings.
 | Flag | Environment variable | Default |
 | --- | --- | --- |
 | `--gtf` | `CSRNA_GTF` | unset; RIT/RIE is skipped |
-| `--metadata` | `CSRNA_METADATA` | unset; parse identities from FASTQ filenames |
+| `--csv` | `CSRNA_METADATA` | unset; parse identities from FASTQ filenames |
 | `--threads` | `CSRNA_THREADS` | `SLURM_CPUS_PER_TASK` or `20` |
 | `--trim-min` | `CSRNA_TRIM_MINLEN` | `20` |
 | `--trim-max` | `CSRNA_TRIM_MAXLEN` | `58` |
