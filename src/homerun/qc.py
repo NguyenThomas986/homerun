@@ -22,6 +22,12 @@ _ASSAYS = ("csRNA", "sRNA", "totalRNA")
 _ASSAY_COLORS = {"csRNA": "#2c7fb8", "sRNA": "#de7c00", "totalRNA": "#636363"}
 
 
+def _save_png_svg(fig, output_stem) -> None:
+    """Save one QC figure as both report-ready PNG and editable SVG."""
+    fig.savefig(output_stem.with_suffix(".png"), dpi=150, bbox_inches="tight")
+    fig.savefig(output_stem.with_suffix(".svg"), bbox_inches="tight")
+
+
 def _replicate_grid(n: int, ncols: int = 4):
     """Fixed-grid figure/axes for one small subplot per replicate (used by
     the per-replicate read-length/nucleotide-frequency/autocorrelation
@@ -144,8 +150,9 @@ def qc_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
         sns.lineplot(df.iloc[:, 0:4], ax=ax)
         ax.set_title(label); ax.set_ylabel("Nucleotide frequency")
     plt.xlabel("Distance from 5' end of read"); plt.tight_layout()
-    plt.savefig(qc_dir / "nucleotide_frequency.png", dpi=150, bbox_inches="tight"); plt.close()
-    log.info("QC: nucleotide_frequency.png")
+    _save_png_svg(fig, qc_dir / "nucleotide_frequency")
+    plt.close(fig)
+    log.info("QC: nucleotide_frequency.png + .svg")
 
 
 def qc_autocorrelation(cfg, species, sample, qc_dir) -> None:
@@ -284,9 +291,9 @@ def qc_tss_nucleotide_freq(cfg, species, sample, qc_dir) -> None:
     fig.supylabel("Nucleotide Frequency")
     fig.suptitle(f"Nucleotide Frequencies at Primary TSS — {n} output(s)")
     plt.tight_layout()
-    plt.savefig(qc_dir / "tss_nucleotide_frequency.png", dpi=150, bbox_inches="tight")
+    _save_png_svg(fig, qc_dir / "tss_nucleotide_frequency")
     plt.close(fig)
-    log.info("QC: tss_nucleotide_frequency.png (%d output(s), grid)", n)
+    log.info("QC: tss_nucleotide_frequency.png + .svg (%d output(s), grid)", n)
 
 
 def qc_tsr_summary(cfg, species, sample, qc_dir) -> None:
@@ -615,10 +622,9 @@ def _nucleotide_freq_grid(leaves, qc_dir) -> None:
     fig.supylabel("Nucleotide frequency")
     fig.suptitle(f"Nucleotide frequency — {n} replicate(s)")
     plt.tight_layout()
-    plt.savefig(qc_dir / "nucleotide_frequency_per_replicate.png",
-               dpi=150, bbox_inches="tight")
-    plt.close()
-    log.info("QC: nucleotide_frequency_per_replicate.png (%d replicate(s), grid)", n)
+    _save_png_svg(fig, qc_dir / "nucleotide_frequency_per_replicate")
+    plt.close(fig)
+    log.info("QC: nucleotide_frequency_per_replicate.png + .svg (%d replicate(s), grid)", n)
 
 
 def qc_autocorrelation_per_replicate(cfg, species, sample, qc_dir) -> None:
