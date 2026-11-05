@@ -5,6 +5,7 @@
 [![CI](https://github.com/NguyenThomas986/homerun/actions/workflows/ci.yml/badge.svg)](https://github.com/NguyenThomas986/homerun/actions/workflows/ci.yml)
 [![Open Issues](https://img.shields.io/github/issues/NguyenThomas986/homerun.svg)](https://github.com/NguyenThomas986/homerun/issues)
 [![Closed Issues](https://img.shields.io/github/issues-closed/NguyenThomas986/homerun.svg)](https://github.com/NguyenThomas986/homerun/issues?q=is%3Aissue+is%3Aclosed)
+[![Bioconda Downloads](https://anaconda.org/bioconda/homerun-csrna/badges/downloads.svg)](https://anaconda.org/bioconda/homerun-csrna)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
