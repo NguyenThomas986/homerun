@@ -1,5 +1,8 @@
 # Running with SLURM
 
+!!! warning "Alpha"
+    The slurm scripts are not provided in the program YET. If you do want the slurm scripts please email thomas.nguyen11@wsu.edu
+
 `submit_array.sh` coordinates preparation and five worker stages. It activates
 the requested conda environment and submits jobs from the repository checkout,
 so an editable package installation is not required on each compute node.
