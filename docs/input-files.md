@@ -63,6 +63,23 @@ exact discovered filenames, and leaves the biological fields blank for the
 user to complete. It never guesses biological metadata and refuses to
 overwrite an existing `samples.csv`.
 
+The generated file initially looks like this (one row per discovered file):
+
+```csv
+FASTQ,Species,Sample,Condition,Assay,Replicate
+homo_sapiens_K562_RNA-r1_R1.fastq,,,,,
+```
+
+Complete the row before running the pipeline:
+
+```csv
+FASTQ,Species,Sample,Condition,Assay,Replicate
+homo_sapiens_K562_RNA-r1_R1.fastq,homo_sapiens,K562,,RNA,r1
+```
+
+The blank generated values are intentional. A starter CSV is not valid input
+until every row has `Species`, `Assay`, and `Replicate` filled in.
+
 `CSRNA_METADATA` provides the same setting. An explicit `--csv` value
 overrides the environment variable. The default is unset.
 
@@ -124,6 +141,8 @@ Metadata rules:
   `rep1`, and `rep2`, and is normalized to lowercase.
 - Duplicate FASTQ rows are rejected. Duplicate output identities are also
   rejected, except for the intentional `R1`/`R2` pair of one library.
+- Save comma-separated text as `.csv`. For an Excel workbook, save as `.xlsx`;
+  changing only the filename extension does not convert between formats.
 
 When metadata is supplied, HomeRun does not fall back to filename parsing for
 an unlisted FASTQ. Validation stops early with a message identifying missing
