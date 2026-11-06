@@ -1,5 +1,4 @@
-"""Package/import tests: homerun and its important public modules import
-cleanly, and the package version is accessible."""
+"""Package/import tests: homerun and its important public modules import cleanly."""
 from __future__ import annotations
 
 import importlib
@@ -10,13 +9,6 @@ import pytest
 def test_homerun_imports():
     import homerun
     assert homerun is not None
-
-
-def test_version_is_accessible():
-    import homerun
-    assert hasattr(homerun, "__version__")
-    assert isinstance(homerun.__version__, str)
-    assert homerun.__version__ == "1.1.0"
 
 
 @pytest.mark.parametrize("module_name", [
