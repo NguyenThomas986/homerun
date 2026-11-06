@@ -13,15 +13,12 @@ permissions:
 jobs:
   test:
     name: Test Python ${{ matrix.python-version }}
-    # Python 3.9 has no actions/setup-python build for Ubuntu 26.04, which
-    # ubuntu-latest now targets. Keep the supported-version matrix on 24.04.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
         python-version:
-          - "3.9"
           - "3.10"
           - "3.11"
           - "3.12"
