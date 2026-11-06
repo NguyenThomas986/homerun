@@ -1,6 +1,7 @@
 """Step 3 — build one HOMER tag directory per biological replicate.
 
-FASTQ filenames are reduced to a replicate identity by ``parse_sample_name``.
+FASTQs are reduced to a replicate identity by ``sample_identity`` (metadata
+when configured, otherwise the unchanged filename parser).
 Every aligned SAM with the same ``(species, sample, leaf_name)`` is supplied
 to one individual ``makeTagDirectory`` call.  A second TagDir combines leaf
 identities that differ only by the final replicate marker (``_r1``, ``_r2``,
@@ -22,7 +23,7 @@ from .utils import (
     iter_leaf_dirs,
     list_r1,
     log,
-    parse_sample_name,
+    sample_identity,
     run,
 )
 
@@ -132,7 +133,7 @@ def run_leaf_tagdirs(cfg, sample_index=None) -> None:
         if not (0 <= sample_index < len(r1s)):
             raise IndexError(f"sample_index {sample_index} out of range (0-{len(r1s)-1})")
         selected = r1s[sample_index]
-        key = parse_sample_name(selected.name)
+        key = sample_identity(cfg, selected)
         members = groups[key]
         if selected != members[0]:
             log.info(

@@ -41,5 +41,8 @@ See [Report an Issue](issue.md).
 
 ## Scope notes
 
-- HOMERun currently identifies every sample purely from its FASTQ filename. Manifest input (CSV / TSV / Excel) is out of scope for now.
-<!-- TODO: confirm current version scope and roadmap wording. -->
+- HOMERun supports both its established filename parser and strict CSV/XLSX
+  sample sheets. Keep filename mode backward compatible when changing sample
+  discovery. CSV/XLSX input should continue through the central metadata
+  loader so downstream pipeline modules receive the same species, sample, and
+  leaf identities in either mode.

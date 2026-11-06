@@ -1,8 +1,16 @@
 # Input Files
 
-HOMERun discovers samples from FASTQ filenames. It does not use a sample sheet.
+HOMERun supports two additive input modes. If `--csv` is omitted, the
+existing filename parser is used exactly as before. If `--csv` is given,
+the CSV/XLSX values define the sample identity and filenames are used only to
+match files and distinguish `R1` from `R2`.
 
-## Filename pattern
+## Mode 1: filename-based parsing
+
+This is the default and remains fully backward compatible. Species, sample,
+condition, assay, and replicate identity are parsed from each FASTQ filename.
+
+### Filename pattern
 
 Each filename must contain, in order:
 
@@ -27,7 +35,120 @@ Examples:
 When no distinct sample token exists, HOMERun reuses the species name as the
 sample name.
 
-## Placement
+Species must be present as the first two filename tokens in this mode. For
+example, `K562_D2_csRNA_r1_R1.fastq.gz` would not identify
+`homo_sapiens`; use metadata mode when filenames do not carry species.
+
+## Mode 2: CSV or Excel metadata
+
+Pass a `.csv` or `.xlsx` file with `--csv`:
+
+```bash
+homerun \
+  --project /data/my-project \
+  --csv /data/my-project/samples.xlsx \
+  --genome-index /indexes/hg38 \
+  --genome hg38
+```
+
+To create a starter CSV automatically, place the FASTQs in the project root
+or existing `Species/RawData/` directories and run:
+
+```bash
+homerun --project /data/my-project --init-csv
+```
+
+This creates `/data/my-project/samples.csv`, fills its `FASTQ` column with the
+exact discovered filenames, and leaves the biological fields blank for the
+user to complete. It never guesses biological metadata and refuses to
+overwrite an existing `samples.csv`.
+
+The generated file initially looks like this (one row per discovered file):
+
+```csv
+FASTQ,Species,Sample,Condition,Assay,Replicate
+homo_sapiens_K562_RNA-r1_R1.fastq,,,,,
+```
+
+Complete the row before running the pipeline:
+
+```csv
+FASTQ,Species,Sample,Condition,Assay,Replicate
+homo_sapiens_K562_RNA-r1_R1.fastq,homo_sapiens,K562,,RNA,r1
+```
+
+The blank generated values are intentional. A starter CSV is not valid input
+until every row has `Species`, `Assay`, and `Replicate` filled in.
+
+`CSRNA_METADATA` provides the same setting. An explicit `--csv` value
+overrides the environment variable. The default is unset.
+
+When using the SLURM controller, pass the Python option after its `--`
+separator so it is forwarded to every job:
+
+```bash
+submit_array.sh \
+  --project /data/my-project \
+  --partition compute \
+  --conda-env homerun \
+  --genome-index /indexes/hg38 \
+  --genome hg38 \
+  -- --csv /data/my-project/samples.xlsx
+```
+
+Required columns are `FASTQ`, `Species`, `Assay`, and `Replicate`. `Sample`
+and `Condition` are optional. Column names are case-insensitive and tolerate
+spaces, underscores, or hyphens.
+
+CSV example:
+
+```csv
+FASTQ,Species,Sample,Condition,Assay,Replicate
+K562_D2_csRNA_r1_R1.fastq.gz,homo_sapiens,K562,D2,csRNA,r1
+K562_D2_sRNA_r1_R1.fastq.gz,homo_sapiens,K562,D2,sRNA,r1
+```
+
+For a conventional total-RNA filename with no condition, leave the
+`Condition` cell empty:
+
+```csv
+FASTQ,Species,Sample,Condition,Assay,Replicate
+homo_sapiens_K562_RNA-r1_R1.fastq,homo_sapiens,K562,,RNA,r1
+```
+
+The equivalent Excel sheet looks like this:
+
+| FASTQ | Species | Sample | Condition | Assay | Replicate |
+| --- | --- | --- | --- | --- | --- |
+| `K562_D2_csRNA_r1_R1.fastq.gz` | `homo_sapiens` | `K562` | `D2` | `csRNA` | `r1` |
+| `K562_D2_sRNA_r1_R1.fastq.gz` | `homo_sapiens` | `K562` | `D2` | `sRNA` | `r1` |
+
+For the first row, HOMERun produces
+`("homo_sapiens", "K562", "D2_csRNA_r1")`. A blank `Condition` produces
+`csRNA_r1`. A blank or omitted `Sample` reuses the normalized species name,
+so a row for `apis_mellifera` produces sample `apis_mellifera`.
+
+Metadata rules:
+
+- `FASTQ` is the exact basename of a FASTQ HomeRun can discover. Do not put a
+  directory path in the cell.
+- Every discovered FASTQ must have a row, and every metadata row must match a
+  discovered file. For paired-end data, include both `R1` and `R2` rows with
+  the same biological fields.
+- `Species` is required and normalized to lowercase.
+- `Assay` accepts `csRNA`, `sRNA`, `totalRNA`, or `RNA` (case-insensitive).
+- `Replicate` accepts lowercase or uppercase forms such as `r1`, `r2`,
+  `rep1`, and `rep2`, and is normalized to lowercase.
+- Duplicate FASTQ rows are rejected. Duplicate output identities are also
+  rejected, except for the intentional `R1`/`R2` pair of one library.
+- Save comma-separated text as `.csv`. For an Excel workbook, save as `.xlsx`;
+  changing only the filename extension does not convert between formats.
+
+When metadata is supplied, HomeRun does not fall back to filename parsing for
+an unlisted FASTQ. Validation stops early with a message identifying missing
+rows, missing files, invalid fields, or output-name collisions.
+
+## FASTQ placement
 
 FASTQs may start in either location:
 
@@ -45,10 +166,13 @@ submit_array.sh \
   --copy-src '/data/run42/*.fastq.gz'
 ```
 
-Paired total-RNA mates are matched by parsed species, sample, condition, assay,
-and replicate identity. Their download accessions do not need to match.
+Paired total-RNA mates are matched by species, sample, condition, assay, and
+replicate identity, whether that identity came from the filename or metadata.
+Their download accessions do not need to match.
 
 !!! warning "Validate names before a long run"
-    A filename without a recognized assay or lowercase replicate marker is
-    rejected. Run `homerun --project PROJECT --stage-raw` first and inspect the
-    resulting `Species/RawData/` directories.
+    In filename mode, a filename without a recognized assay or lowercase
+    replicate marker is rejected. In metadata mode, the manifest is validated
+    strictly before staging. Run `homerun --project PROJECT --stage-raw`
+    (adding `--csv PATH` when applicable) and inspect the resulting
+    `Species/RawData/` directories.

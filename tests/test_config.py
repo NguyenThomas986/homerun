@@ -58,6 +58,17 @@ def test_cli_flag_overrides_env_var(tmp_path, monkeypatch):
     assert cfg.genome == "hg38"
 
 
+def test_metadata_cli_overrides_env_and_is_resolved(tmp_path, monkeypatch):
+    env_file = tmp_path / "env.csv"
+    cli_file = tmp_path / "cli.csv"
+    monkeypatch.setenv("CSRNA_METADATA", str(env_file))
+    args = argparse.Namespace(project=str(tmp_path), metadata=str(cli_file))
+    assert load_config(args).metadata == str(cli_file.resolve())
+
+    args.metadata = None
+    assert load_config(args).metadata == str(env_file.resolve())
+
+
 def test_default_used_when_neither_cli_nor_env_set(tmp_path, monkeypatch):
     monkeypatch.delenv("CSRNA_ALIGNER", raising=False)
     args = argparse.Namespace(project=str(tmp_path), aligner=None)

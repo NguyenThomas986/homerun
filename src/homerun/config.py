@@ -15,6 +15,8 @@ OPTIONAL — enables extra features when set:
   CSRNA_GTF            path to a GTF annotation file. Only needed for the
                        'ritrie' step (RIT/RIE QC metric); without it, ritrie
                        is skipped with a log message rather than failing.
+  CSRNA_METADATA       path to an optional .csv/.xlsx sample metadata file.
+                       When unset, legacy filename parsing remains active.
 """
 from __future__ import annotations
 
@@ -83,6 +85,7 @@ class Config:
 
     # Data sources
     copy_src: str = ""                # optional cp glob into RawData/
+    metadata: str = ""                # optional CSV/XLSX sample metadata
 
     # Stability/location detection (findcsRNATSS column names; override via env if needed)
     stability_col: str = "Stable/Unstable"
@@ -197,6 +200,8 @@ def load_config(args=None) -> Config:
         project_path = Path(cli_project).resolve()
     else:
         project_path = Path(_env("CSRNA_PROJECT", os.getcwd())).resolve()
+    metadata = _pick(args, "metadata", "CSRNA_METADATA", "")
+    metadata_path = str(Path(metadata).expanduser().resolve()) if metadata else ""
     return Config(
         project=project_path,
         force=bool(_pick(args, "force", "CSRNA_FORCE", False)),
@@ -206,6 +211,7 @@ def load_config(args=None) -> Config:
         genome=_pick(args, "genome", "CSRNA_GENOME", ""),
         gtf=_pick(args, "gtf", "CSRNA_GTF", ""),
         copy_src=_pick(args, "copy_src", "CSRNA_COPY_SRC", ""),
+        metadata=metadata_path,
         # ── Alignment (flag > env > default; csRNA-tuned defaults) ───────────
         star_filter_multimap=_pick(args, "star_filter_multimap",
                                    "CSRNA_STAR_FILTER_MULTIMAP", "10000"),

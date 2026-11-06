@@ -4,7 +4,13 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from homerun.qc import _sample_tss_files, qc_nucleotide_divergence_heatmaps
+from homerun.qc import (
+    _sample_tss_files,
+    qc_nucleotide_divergence_heatmaps,
+    qc_nucleotide_freq,
+    qc_nucleotide_freq_per_replicate,
+    qc_tss_nucleotide_freq,
+)
 
 
 def _write_tag_freq(path, adjustment: float) -> None:
@@ -39,6 +45,41 @@ def test_nucleotide_divergence_heatmaps_cover_all_bases_and_samples(cfg):
 def test_nucleotide_divergence_heatmaps_skip_missing_assay(cfg):
     qc_nucleotide_divergence_heatmaps(cfg, [("homo_sapiens", "K562")])
     assert not cfg.species_qc("homo_sapiens").exists()
+
+
+def test_nucleotide_frequency_plots_write_png_and_svg(cfg, make_fastq):
+    species, sample = "homo_sapiens", "K562"
+    qc_dir = cfg.sample_qc(species, sample)
+    qc_dir.mkdir(parents=True)
+
+    _write_tag_freq(cfg.combo_tagdir(species, sample, "csRNA"), 0.0)
+    qc_nucleotide_freq(cfg, species, sample, qc_dir)
+
+    rawdata = cfg.rawdata_dir(species, sample)
+    rawdata.mkdir(parents=True)
+    make_fastq(rawdata / "homo_sapiens_K562_csRNA_r1_R1.fastq.gz")
+    _write_tag_freq(cfg.leaf_tagdir(species, sample, "csRNA_r1"), 0.0)
+    qc_nucleotide_freq_per_replicate(cfg, species, sample, qc_dir)
+
+    tss_dir = cfg.sample_tss(species, sample)
+    tss_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({
+        "A frequency": [0.2, 0.3, 0.4],
+        "C frequency": [0.3, 0.2, 0.1],
+        "G frequency": [0.25, 0.25, 0.25],
+        "T frequency": [0.25, 0.25, 0.25],
+    }, index=[-1, 0, 1]).to_csv(
+        tss_dir / "K562_csRNA_r1.freq.tsv", sep="\t"
+    )
+    qc_tss_nucleotide_freq(cfg, species, sample, qc_dir)
+
+    for stem in (
+        "nucleotide_frequency",
+        "nucleotide_frequency_per_replicate",
+        "tss_nucleotide_frequency",
+    ):
+        assert (qc_dir / f"{stem}.png").is_file()
+        assert (qc_dir / f"{stem}.svg").is_file()
 
 
 def test_shared_tss_directory_does_not_prefix_match_other_sample(cfg):

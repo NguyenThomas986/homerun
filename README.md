@@ -5,6 +5,7 @@
 [![CI](https://github.com/NguyenThomas986/homerun/actions/workflows/ci.yml/badge.svg)](https://github.com/NguyenThomas986/homerun/actions/workflows/ci.yml)
 [![Open Issues](https://img.shields.io/github/issues/NguyenThomas986/homerun.svg)](https://github.com/NguyenThomas986/homerun/issues)
 [![Closed Issues](https://img.shields.io/github/issues-closed/NguyenThomas986/homerun.svg)](https://github.com/NguyenThomas986/homerun/issues?q=is%3Aissue+is%3Aclosed)
+[![Bioconda Downloads](https://anaconda.org/bioconda/homerun-csrna/badges/downloads.svg)](https://anaconda.org/bioconda/homerun-csrna)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 </div>
@@ -25,7 +26,11 @@ This repository is the SLURM-oriented wrapper around the Python package in [csrn
 
 ## Project structure
 
-Projects use a compact `Species/<category>` layout. Species and sample names are parsed from FASTQ filenames; sample identity remains in filenames and TagDir names, so multiple samples can safely share each species-level category directory.
+Projects use a compact `Species/<category>` layout. By default, species and
+sample names are parsed from FASTQ filenames. As an additive alternative,
+`--csv` accepts a CSV or Excel sample sheet whose values take priority over
+filename parsing. Sample identity remains in output filenames and TagDir names,
+so multiple samples can safely share each species-level category directory.
 
 For example, `homo_sapiens_K562_csRNA-r1_DB422_S1_R1_001.fastq.gz` becomes species `homo_sapiens`, sample `K562`, and leaf `csRNA_r1`.
 
@@ -136,6 +141,41 @@ path/to/homerun/submit_array.sh \
   --genome hg38
 ```
 
+## Quick start with a generated CSV
+
+If FASTQ filenames do not encode species and sample information, HomeRun can
+create a starter CSV from the files it discovers:
+
+```bash
+homerun --project /PATH/TO/PROJECT --init-csv
+```
+
+This creates `/PATH/TO/PROJECT/samples.csv` without overwriting an existing
+file. Open it in a text editor or spreadsheet program and complete the required
+biological fields. For example:
+
+```csv
+FASTQ,Species,Sample,Condition,Assay,Replicate
+homo_sapiens_K562_RNA-r1_R1.fastq,homo_sapiens,K562,,RNA,r1
+```
+
+Then pass it to a direct run with `--csv`. For a SLURM run, forward it after
+the controller's `--` separator:
+
+```bash
+path/to/homerun/submit_array.sh \
+  --project /PATH/TO/PROJECT \
+  --partition kamiak \
+  --conda-env CONDA_ENV_NAME \
+  --genome-index /path/to/STARIndex \
+  --genome hg38 \
+  -- --csv /PATH/TO/PROJECT/samples.csv
+```
+
+The `--csv` option accepts both `.csv` and `.xlsx` files. See
+[Input files](docs/input-files.md) for the required columns, paired-end rows,
+validation rules, and the unchanged filename-based mode.
+
 ## Quick start (with copying files via copy-src)
 
 ```bash
@@ -199,6 +239,8 @@ Optional:
 | `--trim-adapter` | `AGATCGGAAGAGCACACGTCT` | 3′ adapter sequence |
 | `--skip-chr` | `chrEBV` | Chromosome to exclude from bedGraphs |
 | `--gtf` | | Genome annotation GTF; enables the `ritrie` step. Skipped (not an error) if unset |
+| `--csv` | | CSV or XLSX sample sheet; its biological identities take priority over filename parsing |
+| `--init-csv` | | Create `<project>/samples.csv` from discovered FASTQ filenames and exit |
 
 To pass extra flags directly to the Python pipeline (e.g. STAR tuning, or `--gtf`):
 

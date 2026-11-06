@@ -14,6 +14,11 @@ Available inputs determine which plots are produced. Outputs can include:
 - promoter-proximal versus distal TSS counts;
 - RIT/RIE metrics when a GTF is configured.
 
+Nucleotide-frequency plots are written in both PNG and SVG formats. PNG files
+are embedded in the generated reports; the matching SVG files remain editable
+and scale cleanly for figures and presentations. This includes the combined,
+per-replicate, and TSS-centered nucleotide-frequency plots.
+
 Missing optional inputs cause the relevant plot to be skipped with a log
 message; they do not invalidate unrelated QC.
 
